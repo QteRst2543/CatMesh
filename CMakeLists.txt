@@ -5,15 +5,17 @@ set(CMAKE_CXX_STANDARD 17)
 
 add_subdirectory(extern/glfw)
 
-add_library(glad
+# Библиотека glad
+add_library(glad STATIC
     extern/glad/src/glad.c
 )
 
 target_include_directories(glad PUBLIC
-    extern/glad/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/extern/glad/include
 )
 
-add_library(imgui
+# Библиотека imgui
+add_library(imgui STATIC
     extern/imgui/imgui.cpp
     extern/imgui/imgui_draw.cpp
     extern/imgui/imgui_tables.cpp
@@ -23,24 +25,27 @@ add_library(imgui
 )
 
 target_include_directories(imgui PUBLIC
-    extern/imgui
-    extern/imgui/backends
-    extern/glfw/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/extern/imgui
+    ${CMAKE_CURRENT_SOURCE_DIR}/extern/imgui/backends
+    ${CMAKE_CURRENT_SOURCE_DIR}/extern/glfw/include
 )
 
+# Исполняемый файл
 add_executable(CatMesh_Dev
     src/main.cpp
+    src/app/Application.cpp
+    src/Platform/Window.cpp
+    src/ui/UI.cpp
     src/ui/Themes.cpp
 )
 
-target_include_directories(CatMesh_Dev PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/src
-)
-
+# Все include директории через PUBLIC
 target_include_directories(CatMesh_Dev PUBLIC
-    extern/glfw/include
-    extern/glad/include
-    extern/glm
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/extern/glad/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/extern/glfw/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/extern/imgui
+    ${CMAKE_CURRENT_SOURCE_DIR}/extern/imgui/backends
 )
 
 target_link_libraries(CatMesh_Dev
