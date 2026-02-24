@@ -1,0 +1,51 @@
+cmake_minimum_required(VERSION 3.16)
+project(CatMesh_Dev)
+
+set(CMAKE_CXX_STANDARD 17)
+
+add_subdirectory(extern/glfw)
+
+add_library(glad
+    extern/glad/src/glad.c
+)
+
+target_include_directories(glad PUBLIC
+    extern/glad/include
+)
+
+add_library(imgui
+    extern/imgui/imgui.cpp
+    extern/imgui/imgui_draw.cpp
+    extern/imgui/imgui_tables.cpp
+    extern/imgui/imgui_widgets.cpp
+    extern/imgui/backends/imgui_impl_glfw.cpp
+    extern/imgui/backends/imgui_impl_opengl3.cpp
+)
+
+target_include_directories(imgui PUBLIC
+    extern/imgui
+    extern/imgui/backends
+    extern/glfw/include
+)
+
+add_executable(CatMesh_Dev
+    src/main.cpp
+    src/ui/Themes.cpp
+)
+
+target_include_directories(CatMesh_Dev PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+
+target_include_directories(CatMesh_Dev PUBLIC
+    extern/glfw/include
+    extern/glad/include
+    extern/glm
+)
+
+target_link_libraries(CatMesh_Dev
+    glfw
+    glad
+    imgui
+    opengl32
+)
