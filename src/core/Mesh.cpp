@@ -1,13 +1,56 @@
 #include "Mesh.h"
 #include <glad/glad.h>
+#include <glm/glm.hpp>
 #include <glm/gtc/type_ptr.hpp>
 #include <fstream>
 #include <sstream>
 #include <iostream>
 #include <vector>
 
+//Временная затычка 
+//
+std::string Mesh::LoadShaderSource(const std::string& filepath)
+{
+    std::ifstream file(filepath);
+    if (!file.is_open())
+    {
+        std::cerr << "Failed to open shader file: " << filepath << std::endl;
+        return {};
+    }
+
+    std::stringstream ss;
+    ss << file.rdbuf();
+    return ss.str();
+}
+
+void Mesh::CreateShaderProgram()
+{
+    // Временные шейдеры прямо в коде
+    const char* vertSource = R"(
+        #version 460 core
+        layout (location = 0) in vec3 aPos;
+        uniform mat4 model;
+        uniform mat4 view;
+        uniform mat4 projection;
+        void main() {
+            gl_Position = projection * view * model * vec4(aPos, 1.0);
+        }
+    )";
+
+    const char* fragSource = R"(
+        #version 460 core
+        out vec4 FragColor;
+        uniform vec3 color;
+        void main() {
+            FragColor = vec4(color, 1.0);
+        }
+    )";
+}
+//
+
+
 Mesh::Mesh() : VAO(0), VBO(0), EBO(0), shaderProgram(0), vertexCount(0),
-position(0.0f), color(1.0f, 0.5f, 0.8f) { // розовый для лапы
+position(0.0f), color(1.0f, 0.5f, 0.8f) { // розовый 
     CreateShaderProgram();
 }
 
@@ -19,8 +62,7 @@ Mesh::~Mesh() {
 }
 
 bool Mesh::LoadFromFile(const std::string& filename) {
-    // TODO: Загрузить реальную модель
-    // Пока создадим простой куб (потом заменим на лапу)
+    // простой куб 
     std::vector<float> vertices = {
         -0.5f, -0.5f, -0.5f,  0.5f, -0.5f, -0.5f,  0.5f,  0.5f, -0.5f, -0.5f,  0.5f, -0.5f,
         -0.5f, -0.5f,  0.5f,  0.5f, -0.5f,  0.5f,  0.5f,  0.5f,  0.5f, -0.5f,  0.5f,  0.5f
@@ -57,18 +99,44 @@ bool Mesh::LoadFromFile(const std::string& filename) {
 
     return true;
 }
-
 void Mesh::Draw(const glm::mat4& view, const glm::mat4& projection) {
-    glUseProgram(shaderProgram);
+    // Временно игнорируем шейдеры
+    glMatrixMode(GL_PROJECTION);
+    glLoadMatrixf(glm::value_ptr(projection));
 
-    glm::mat4 model = glm::translate(glm::mat4(1.0f), position);
+    glMatrixMode(GL_MODELVIEW);
+    glm::mat4 modelview = view * glm::translate(glm::mat4(1.0f), position);
+    glLoadMatrixf(glm::value_ptr(modelview));
 
-    glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(model));
-    glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "view"), 1, GL_FALSE, glm::value_ptr(view));
-    glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
-    glUniform3fv(glGetUniformLocation(shaderProgram, "color"), 1, glm::value_ptr(color));
+    glColor3f(1.0f, 0.0f, 0.0f);  // Ярко-красный
 
     glBindVertexArray(VAO);
     glDrawElements(GL_TRIANGLES, vertexCount, GL_UNSIGNED_INT, 0);
     glBindVertexArray(0);
-}
+
+
+}    //if (!shaderProgram) {
+    //    std::cerr << "No shader program!" << std::endl;
+    //    return;
+    //}
+
+    //glUseProgram(shaderProgram);
+    //std::cout << "Drawing mesh with shader " << shaderProgram << std::endl;  // отладочный вывод
+
+    //if (!VAO) {
+    //    std::cerr << "No VAO!" << std::endl;
+    //    return;
+    //}
+    //std::cout << "VAO: " << VAO << ", vertexCount: " << vertexCount << std::endl;
+
+
+    //glm::mat4 model = glm::translate(glm::mat4(1.0f), position);
+
+    //glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(model));
+    //glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "view"), 1, GL_FALSE, glm::value_ptr(view));
+    //glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
+    //glUniform3fv(glGetUniformLocation(shaderProgram, "color"), 1, glm::value_ptr(color));
+
+    //glBindVertexArray(VAO);
+    //glDrawElements(GL_TRIANGLES, vertexCount, GL_UNSIGNED_INT, 0);
+    //glBindVertexArray(0);

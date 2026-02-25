@@ -3,6 +3,8 @@
 #include <GLFW/glfw3.h>
 #include <iostream>
 
+Application::~Application() = default;
+
 Application::Application()
     : window(1920, 1080, "CatMesh0.0.1"), ui(window),
     lastMouseX(0), lastMouseY(0), mousePressed(false)

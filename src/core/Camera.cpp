@@ -1,15 +1,19 @@
 #include "Camera.h"
+#include <IOSTREAM>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/constants.hpp>
 
-Camera::Camera() : radius(3.0f), angleX(0.0f), angleY(glm::radians(30.0f)),
+Camera::Camera() : radius(5.0f), angleX(0.0f), angleY(glm::radians(30.0f)),
 target(0.0f), up(0.0f, 1.0f, 0.0f) {
+    Update();
 }
 
 void Camera::Update() {
     position.x = target.x + radius * cos(angleY) * sin(angleX);
     position.y = target.y + radius * sin(angleY);
     position.z = target.z + radius * cos(angleY) * cos(angleX);
+
+    std::cout << "Camera pos: " << position.x << ", " << position.y << ", " << position.z << std::endl;
 }
 
 glm::mat4 Camera::GetViewMatrix() const {

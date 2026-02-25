@@ -16,7 +16,8 @@ Window::Window(int width, int height, const char* title)
 	}
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
-	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_COMPAT_PROFILE);
+	//glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
 	window = glfwCreateWindow(width, height, title, nullptr, nullptr);
 	if (!window) {
@@ -34,6 +35,7 @@ Window::Window(int width, int height, const char* title)
 		window = nullptr;
 		return;
 	}
+	glEnable(GL_DEPTH_TEST);
 }
 Window::~Window() {
 	if (window) {

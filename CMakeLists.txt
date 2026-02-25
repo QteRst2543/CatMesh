@@ -5,9 +5,12 @@ set(CMAKE_CXX_STANDARD 17)
 
 add_subdirectory(extern/glfw)
 
+file(COPY ${CMAKE_SOURCE_DIR}/shaders
+     DESTINATION ${CMAKE_BINARY_DIR})
+
 # Библиотека glad
 add_library(glad STATIC
-    extern/glad/src/glad.c
+    extern/glad/src/glad.c)
  #"src/core/Camera.h" "src/core/Camera.cpp" "src/core/Mesh.h" "src/core/Mesh.cpp" "src/core/Shader.h" "src/core/Shader.cpp")
 
 target_include_directories(glad PUBLIC
@@ -21,7 +24,7 @@ add_library(imgui STATIC
     extern/imgui/imgui_tables.cpp
     extern/imgui/imgui_widgets.cpp
     extern/imgui/backends/imgui_impl_glfw.cpp
-    extern/imgui/backends/imgui_impl_opengl3.cpp
+    extern/imgui/backends/imgui_impl_opengl3.cpp)
  #"src/core/Camera.h" "src/core/Camera.cpp" "src/core/Mesh.h" "src/core/Mesh.cpp" "src/core/Shader.h" "src/core/Shader.cpp")
 
 target_include_directories(imgui PUBLIC
