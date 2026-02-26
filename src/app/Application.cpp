@@ -12,7 +12,7 @@ Application::Application()
     camera.Update();
 
     mesh = new Mesh();
-    if (!mesh->LoadFromFile("")) {  // пустой файл = куб пока
+    if (!mesh->LoadFromFile("")) {  // пустой файл  куб кря
         std::cerr << "Failed to load mesh" << std::endl;
     }
     mesh->SetPosition(glm::vec3(0.0f, 0.0f, 0.0f));
@@ -42,8 +42,7 @@ void Application::HandleInput() {
         mousePressed = false;
     }
 
-    // Zoom с колёсика
-    // TODO: добавить обработку scroll callback
+    // TODO: обработка scroll callback
 }
 
 void Application::Run() {

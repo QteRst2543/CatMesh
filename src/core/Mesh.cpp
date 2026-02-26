@@ -25,7 +25,7 @@ std::string Mesh::LoadShaderSource(const std::string& filepath)
 
 void Mesh::CreateShaderProgram()
 {
-    // Временные шейдеры прямо в коде
+    // шейдеры прям в коде
     const char* vertSource = R"(
         #version 460 core
         layout (location = 0) in vec3 aPos;
@@ -50,7 +50,7 @@ void Mesh::CreateShaderProgram()
 
 
 Mesh::Mesh() : VAO(0), VBO(0), EBO(0), shaderProgram(0), vertexCount(0),
-position(0.0f), color(1.0f, 0.5f, 0.8f) { // розовый 
+position(0.0f), color(1.0f, 0.1f, 0.1f) { 
     CreateShaderProgram();
 }
 
@@ -108,7 +108,7 @@ void Mesh::Draw(const glm::mat4& view, const glm::mat4& projection) {
     glm::mat4 modelview = view * glm::translate(glm::mat4(1.0f), position);
     glLoadMatrixf(glm::value_ptr(modelview));
 
-    glColor3f(1.0f, 0.0f, 0.0f);  // Ярко-красный
+    glColor3f(1.0f, 0.1f, 0.1f);  
 
     glBindVertexArray(VAO);
     glDrawElements(GL_TRIANGLES, vertexCount, GL_UNSIGNED_INT, 0);

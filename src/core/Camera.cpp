@@ -28,7 +28,7 @@ void Camera::Rotate(float deltaX, float deltaY) {
     angleX += deltaX * 0.01f;
     angleY += deltaY * 0.01f;
 
-    // Ограничиваем угол Y, чтобы не улететь под объект
+    // Ограничение угла Y
     angleY = glm::clamp(angleY, -glm::half_pi<float>() + 0.1f, glm::half_pi<float>() - 0.1f);
     Update();
 }
