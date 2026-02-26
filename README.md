@@ -1,7 +1,6 @@
 # CatMesh
 
-CatMesh is a lightweight mesh editor focused on low-poly / PS1-style models
-for use in a 3D-printing slicing pipeline.
+CatMesh is a lightweight mesh editor focused on low-poly
 
 ## Features
 
@@ -16,3 +15,4 @@ for use in a 3D-printing slicing pipeline.
 ```bash
 cmake -S . -B build
 cmake --build build
+```
