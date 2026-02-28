@@ -1,15 +1,6 @@
 #pragma once
 #include <memory>
 #include <glm/glm.hpp>
-#include <glm/gtc/matrix_transform.hpp>
-#include <glm/gtc/type_ptr.hpp>
-#include "Platform/Window.h"
-#include "ui/UI.h"
-#include "core/Camera.h"
-#include "core/Mesh.h"
-#include <vector>
-#include <stack>
-#include "core/Command.h"
 
 class Application;
 class Mesh;
@@ -28,7 +19,7 @@ public:
     void Undo() override;
 private:
     Application* app;
-    Mesh* newMesh; // Сырой указатель, владение у Application
+    Mesh* newMesh;
 };
 
 class MoveCommand : public Command {

@@ -24,7 +24,7 @@ Application::Application()
     camera.Update();
     AddDefaultCube();
 
-    // Устанавливаем user pointer и scroll callback
+    // Устанавливаем scroll callback
     GLFWwindow* nativeWindow = window.GetNativeWindow();
     glfwSetWindowUserPointer(nativeWindow, this);
     glfwSetScrollCallback(nativeWindow, scroll_callback);
