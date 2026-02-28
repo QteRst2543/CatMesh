@@ -8,7 +8,6 @@ CatMesh is a lightweight mesh editor focused on low-poly
 - Basic mesh editing
 - Texture preview
 - Undo / redo
-- Export for slicer pipeline
 
 ## Build
 
