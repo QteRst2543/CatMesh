@@ -5,9 +5,12 @@
 #include "backends/imgui_impl_opengl3.h"
 #include <string>
 
+// Предварительное объявление GLFWwindow
+struct GLFWwindow;
+
 class Window {
 public:
-	Window(int wight, int height, const char* title);
+	Window(int width, int height, const char* title);
 	~Window();
 
 	bool ShouldClose() const;
@@ -16,7 +19,7 @@ public:
 	int GetWidth() const;
 	int GetHeight() const;
 	GLFWwindow* GetNativeWindow() const;
-	bool IsValid() const; // проверяем открытое окно 
+	bool IsValid() const;
 
 private:
 	GLFWwindow* window;

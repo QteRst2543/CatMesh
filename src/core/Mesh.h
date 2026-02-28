@@ -16,6 +16,10 @@ public:
     void SetPosition(const glm::vec3& pos) { position = pos; }
     void SetColor(const glm::vec3& col) { color = col; }
 
+    // Добавляем геттеры
+    glm::vec3 GetPosition() const { return position; }
+    glm::vec3 GetColor() const { return color; }
+
 private:
     unsigned int VAO, VBO, EBO;
     unsigned int shaderProgram;

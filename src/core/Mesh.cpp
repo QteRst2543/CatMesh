@@ -50,7 +50,7 @@ void Mesh::CreateShaderProgram()
 
 
 Mesh::Mesh() : VAO(0), VBO(0), EBO(0), shaderProgram(0), vertexCount(0),
-position(0.0f), color(1.0f, 0.5f, 0.8f) { // розовый 
+position(0.0f), color(0.5f, 0.5f, 0.5f) { 
     CreateShaderProgram();
 }
 
@@ -100,7 +100,6 @@ bool Mesh::LoadFromFile(const std::string& filename) {
     return true;
 }
 void Mesh::Draw(const glm::mat4& view, const glm::mat4& projection) {
-    // Временно игнорируем шейдеры
     glMatrixMode(GL_PROJECTION);
     glLoadMatrixf(glm::value_ptr(projection));
 
@@ -108,35 +107,10 @@ void Mesh::Draw(const glm::mat4& view, const glm::mat4& projection) {
     glm::mat4 modelview = view * glm::translate(glm::mat4(1.0f), position);
     glLoadMatrixf(glm::value_ptr(modelview));
 
-    glColor3f(1.0f, 0.0f, 0.0f);  // Ярко-красный
+    // Используем цвет из переменной color
+    glColor3f(color.r, color.g, color.b);
 
     glBindVertexArray(VAO);
     glDrawElements(GL_TRIANGLES, vertexCount, GL_UNSIGNED_INT, 0);
     glBindVertexArray(0);
-
-
-}    //if (!shaderProgram) {
-    //    std::cerr << "No shader program!" << std::endl;
-    //    return;
-    //}
-
-    //glUseProgram(shaderProgram);
-    //std::cout << "Drawing mesh with shader " << shaderProgram << std::endl;  // отладочный вывод
-
-    //if (!VAO) {
-    //    std::cerr << "No VAO!" << std::endl;
-    //    return;
-    //}
-    //std::cout << "VAO: " << VAO << ", vertexCount: " << vertexCount << std::endl;
-
-
-    //glm::mat4 model = glm::translate(glm::mat4(1.0f), position);
-
-    //glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(model));
-    //glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "view"), 1, GL_FALSE, glm::value_ptr(view));
-    //glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
-    //glUniform3fv(glGetUniformLocation(shaderProgram, "color"), 1, glm::value_ptr(color));
-
-    //glBindVertexArray(VAO);
-    //glDrawElements(GL_TRIANGLES, vertexCount, GL_UNSIGNED_INT, 0);
-    //glBindVertexArray(0);
+}
