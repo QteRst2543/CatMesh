@@ -1,10 +1,15 @@
 #include "app/Application.h"
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
+#include "core/Mesh.h"
 #include <iostream>
 #include <algorithm>
 #include <fstream>
+#include <glm/glm.hpp>
+#include <glm/gtc/type_ptr.hpp>
 #include <sstream>
+#include <unordered_map>
+
 
 // Статическая функция для обработки скролла
 static void scroll_callback(GLFWwindow* window, double xoffset, double yoffset) {
@@ -15,9 +20,19 @@ static void scroll_callback(GLFWwindow* window, double xoffset, double yoffset) 
     }
 }
 
+bool IsKeyPressedOnce(GLFWwindow* window, int key) {
+    static std::unordered_map<int, bool> wasPressed;
+    bool pressed = glfwGetKey(window, key) == GLFW_PRESS;
+    bool result = pressed && !wasPressed[key];
+    wasPressed[key] = pressed;
+    return result;
+}
+
 Application::~Application() = default;
 
 Application::Application()
+
+
     : window(1920, 1080, "CatMesh"), ui(window, this),
     lastMouseX(0), lastMouseY(0), mousePressed(false)
 {
@@ -94,6 +109,8 @@ void Application::HandleInput() {
     double x, y;
     glfwGetCursorPos(glfwWindow, &x, &y);
 
+    if (ImGui::GetIO().WantCaptureMouse)
+        return;
     // Вращение камеры на ПКМ
     if (glfwGetMouseButton(glfwWindow, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS) {
         if (!mousePressed) {
@@ -109,6 +126,7 @@ void Application::HandleInput() {
             lastMouseY = y;
         }
     }
+
     // Перемещение объекта на ЛКМ
     else if (glfwGetMouseButton(glfwWindow, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS && selectedMesh) {
         if (!mousePressed) {
@@ -136,7 +154,6 @@ void Application::HandleInput() {
 
 void Application::Run() {
     glEnable(GL_DEPTH_TEST);
-
     while (!window.ShouldClose()) {
         HandleInput();
         window.PollEvents();
@@ -162,6 +179,15 @@ void Application::Run() {
         ui.RenderDrawData();
         window.SwapBuffers();
     }
+    while(!window.ShouldClose()) {
+        window.PollEvents();
+        if (IsKeyPressedOnce(window.GetNativeWindow(), GLFW_KEY_Y)) 
+            Application::Redo();
+        
+        if (IsKeyPressedOnce(window.GetNativeWindow(), GLFW_KEY_Z))
+            Application::Undo();
+   
+    }
 }
 
 void Application::OpenFile() {
@@ -180,22 +206,68 @@ void Application::SaveFile() {
     std::cout << "Saved: " << filename << std::endl;
 }
 
-void Application::ExportSTL() {
+void Application::ExportSTL(const std::string& path) {
     if (meshes.empty()) {
         std::cout << "No meshes to export!" << std::endl;
         return;
     }
 
-    std::cout << "Export STL - Enter filename: ";
-    std::string filename;
-    std::cin >> filename;
-    filename += ".stl";
-
-    std::ofstream file(filename);
-    if (file.is_open()) {
-        file << "solid ExportedMesh\n";
-        file << "endsolid ExportedMesh\n";
-        file.close();
-        std::cout << "Exported to: " << filename << std::endl;
+    std::ofstream out(path);
+    if (!out.is_open()) {
+        std::cout << "Failed to open file for writing: " << path << std::endl;
+        return;
     }
+
+    out << "solid ExportedMesh\n";
+
+    // Проходим по всем мешам
+    for (const auto& meshPtr : meshes) {
+        const std::vector<float>& vertices = meshPtr->GetVertices();
+        const std::vector<unsigned int>& indices = meshPtr->GetIndices();
+
+        // Получаем позицию меша для трансформации вершин
+        glm::vec3 meshPos = meshPtr->GetPosition();
+
+        for (size_t i = 0; i + 2 < indices.size(); i += 3) {
+            unsigned int i0 = indices[i];
+            unsigned int i1 = indices[i + 1];
+            unsigned int i2 = indices[i + 2];
+
+            // Создаем вершины с учетом позиции меша
+            glm::vec3 v0(
+                vertices[i0 * 3] + meshPos.x,
+                vertices[i0 * 3 + 1] + meshPos.y,
+                vertices[i0 * 3 + 2] + meshPos.z
+            );
+
+            glm::vec3 v1(
+                vertices[i1 * 3] + meshPos.x,
+                vertices[i1 * 3 + 1] + meshPos.y,
+                vertices[i1 * 3 + 2] + meshPos.z
+            );
+
+            glm::vec3 v2(
+                vertices[i2 * 3] + meshPos.x,
+                vertices[i2 * 3 + 1] + meshPos.y,
+                vertices[i2 * 3 + 2] + meshPos.z
+            );
+
+            // Вычисляем нормаль
+            glm::vec3 n = glm::normalize(glm::cross(v1 - v0, v2 - v0));
+
+            // Записываем треугольник в STL формате (обратите внимание на пробелы!)
+            out << "facet normal " << n.x << " " << n.y << " " << n.z << "\n";
+            out << "  outer loop\n";
+            out << "    vertex " << v0.x << " " << v0.y << " " << v0.z << "\n";
+            out << "    vertex " << v1.x << " " << v1.y << " " << v1.z << "\n";
+            out << "    vertex " << v2.x << " " << v2.y << " " << v2.z << "\n";
+            out << "  endloop\n";
+            out << "endfacet\n";  // Должно быть "endfacet", а не "endFacet"
+        }
+    }
+
+    out << "endsolid ExportedMesh\n";
+    out.close();
+
+    std::cout << "Exported " << meshes.size() << " mesh(es) to: " << path << std::endl;
 }

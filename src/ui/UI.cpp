@@ -3,11 +3,14 @@
 #include "Platform/Window.h"
 #include <glm/glm.hpp>
 #include "imgui.h"
+#include "app/Application.h"
+#include "core/Mesh.h"
 #include <glm/gtc/type_ptr.hpp>
 #include "backends/imgui_impl_glfw.h"
 #include "backends/imgui_impl_opengl3.h"
 #include "core/Command.h"
 #include <string>
+#include <filesystem>
 
 UIManager::UIManager(Window& win, Application* app)
     : window(win), app(app), currentTheme(Themes::Classic)
@@ -60,7 +63,7 @@ void UIManager::DrawMainMenuBar() {
                 if (app) app->SaveFile();
             }
             if (ImGui::MenuItem("Export STL")) {
-                if (app) app->ExportSTL();
+                if (app) app->ExportSTL("test.stl");
             }
             ImGui::EndMenu();
         }
@@ -76,7 +79,7 @@ void UIManager::DrawMainMenuBar() {
                 if (ImGui::MenuItem("Dark")) SetTheme(Themes::Dark);
                 if (ImGui::MenuItem("Light")) SetTheme(Themes::Light);
                 if (ImGui::MenuItem("Classic")) SetTheme(Themes::Classic);
-                if (ImGui::MenuItem("PS1")) SetTheme(Themes::PS1);
+               // if (ImGui::MenuItem("PS1")) SetTheme(Themes::PS1);
                 ImGui::EndMenu();
             }
             ImGui::EndMenu();

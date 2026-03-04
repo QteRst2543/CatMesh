@@ -63,12 +63,12 @@ Mesh::~Mesh() {
 
 bool Mesh::LoadFromFile(const std::string& filename) {
     // простой куб 
-    std::vector<float> vertices = {
+     vertices = {
         -0.5f, -0.5f, -0.5f,  0.5f, -0.5f, -0.5f,  0.5f,  0.5f, -0.5f, -0.5f,  0.5f, -0.5f,
         -0.5f, -0.5f,  0.5f,  0.5f, -0.5f,  0.5f,  0.5f,  0.5f,  0.5f, -0.5f,  0.5f,  0.5f
     };
 
-    std::vector<unsigned int> indices = {
+     indices = {
         0,1,2, 2,3,0,  // задняя
         4,5,6, 6,7,4,  // передняя
         0,4,7, 7,3,0,  // левая

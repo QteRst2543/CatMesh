@@ -35,12 +35,13 @@ public:
 	// Файловые операции
 	void OpenFile();
 	void SaveFile();
-	void ExportSTL();
+	void ExportSTL(const std::string& path);
 
 private:
 	Window window;
 	UIManager ui;
 	Camera camera;
+	Mesh mesh;
 	std::vector<std::unique_ptr<Mesh>> meshes;
 	Mesh* selectedMesh = nullptr;
 	std::stack<std::unique_ptr<Command>> undoStack;
