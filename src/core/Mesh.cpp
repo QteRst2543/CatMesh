@@ -4,47 +4,27 @@
 #include <glm/gtc/type_ptr.hpp>
 #include <fstream>
 #include <sstream>
+#include <string>
 #include <iostream>
 #include <vector>
 
 //Временная затычка 
 //
-std::string Mesh::LoadShaderSource(const std::string& filepath)
-{
-    std::ifstream file(filepath);
-    if (!file.is_open())
-    {
-        std::cerr << "Failed to open shader file: " << filepath << std::endl;
-        return {};
-    }
-
-    std::stringstream ss;
-    ss << file.rdbuf();
-    return ss.str();
+std::string LoadFile(const std::string& path) {
+    std::ifstream file(path);
+    std::stringstream buffer;
+    buffer << file.rdbuf();
+    std::cout << "shaders ready\n";
+    return buffer.str();
 }
 
 void Mesh::CreateShaderProgram()
 {
-    // Временные шейдеры прямо в коде
-    const char* vertSource = R"(
-        #version 460 core
-        layout (location = 0) in vec3 aPos;
-        uniform mat4 model;
-        uniform mat4 view;
-        uniform mat4 projection;
-        void main() {
-            gl_Position = projection * view * model * vec4(aPos, 1.0);
-        }
-    )";
+    std::string vertexCode = LoadFile("shaders/basic.vert");
+    std::string fragmentCode = LoadFile("shaders/basic.frag");
 
-    const char* fragSource = R"(
-        #version 460 core
-        out vec4 FragColor;
-        uniform vec3 color;
-        void main() {
-            FragColor = vec4(color, 1.0);
-        }
-    )";
+    const char* vertexShaderSource = vertexCode.c_str();
+    const char* fragmentShaderSource = fragmentCode.c_str();
 }
 //
 
@@ -63,18 +43,46 @@ Mesh::~Mesh() {
 
 bool Mesh::LoadFromFile(const std::string& filename) {
     // простой куб 
-     vertices = {
-        -0.5f, -0.5f, -0.5f,  0.5f, -0.5f, -0.5f,  0.5f,  0.5f, -0.5f, -0.5f,  0.5f, -0.5f,
-        -0.5f, -0.5f,  0.5f,  0.5f, -0.5f,  0.5f,  0.5f,  0.5f,  0.5f, -0.5f,  0.5f,  0.5f
+     std::vector<float> vertices = {
+         //задняя
+        -0.5f,-0.5f,-0.5f,0,0,-1,
+        0.5f,-0.5f,-0.5f,0,0,-1,
+        0.5f,0.5f,-0.5f,0,0,-1,
+        -0.5f,0.5f,-0.5f,0,0,-1,
+        //передняя
+        -0.5f,-0.5f,0.5f,0,0,1,
+        0.5f,-0.5f,0.5f,0,0,1,
+        0.5f,0.5f,0.5f,0,0,1,
+        -0.5f,0.5f,0.5f,0,0,1,
+        //левая
+        -0.5f,-0.5f,-0.5f,-1,0,0,
+        -0.5f,0.5f,-0.5f,-1,0,0,
+        -0.5f,0.5f,0.5f,-1,0,0,
+        -0.5f,-0.5f,0.5f,-1,0,0,
+        //правая
+        0.5f,-0.5f,-0.5f,1,0,0,
+        0.5f,0.5f,-0.5f,1,0,0,
+        0.5f,0.5f,0.5f,1,0,0,
+        0.5f,-0.5f,0.5f,1,0,0,
+        //верхняя
+        -0.5f,0.5f,-0.5f,0,1,0,
+        0.5f,0.5f,-0.5f,0,1,0,
+        0.5f,0.5f,0.5f,0,1,0,
+        -0.5f,0.5f,0.5f,0,1,0,
+        //нижняя
+        -0.5f,-0.5f,-0.5f,0,-1,0,
+        0.5f,-0.5f,-0.5f,0,-1,0,
+        0.5f,-0.5f,0.5f,0,-1,0,
+        -0.5f,-0.5f,0.5f,0,-1,0,
     };
 
-     indices = {
+     std::vector<unsigned int> indices = {
         0,1,2, 2,3,0,  // задняя
         4,5,6, 6,7,4,  // передняя
-        0,4,7, 7,3,0,  // левая
-        1,5,6, 6,2,1,  // правая
-        3,2,6, 6,7,3,  // верхняя
-        0,1,5, 5,4,0   // нижняя
+        8,9,10, 10,11,8,  // левая
+        12,13,14, 14,15,12,  // правая
+        16,17,18, 18,19,16,  // верхняя
+        20,21,22, 22,23,20   // нижняя
     };
 
     vertexCount = indices.size();
@@ -91,8 +99,11 @@ bool Mesh::LoadFromFile(const std::string& filename) {
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(unsigned int), indices.data(), GL_STATIC_DRAW);
 
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
     glEnableVertexAttribArray(0);
+
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3*sizeof(float)));
+    glEnableVertexAttribArray(1);
 
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glBindVertexArray(0);
@@ -100,15 +111,21 @@ bool Mesh::LoadFromFile(const std::string& filename) {
     return true;
 }
 void Mesh::Draw(const glm::mat4& view, const glm::mat4& projection) {
-    glMatrixMode(GL_PROJECTION);
-    glLoadMatrixf(glm::value_ptr(projection));
+    glUseProgram(shaderProgram);
+    //свет
+    glm::vec3 lightPos(3.0f, 3.0f, 3.0f);
+    glUniform3fv(
+        glGetUniformLocation(shaderProgram, "lightPos"), 1, glm::value_ptr(lightPos)
+    );
 
-    glMatrixMode(GL_MODELVIEW);
-    glm::mat4 modelview = view * glm::translate(glm::mat4(1.0f), position);
-    glLoadMatrixf(glm::value_ptr(modelview));
+    glm::mat4 model = glm::translate(glm::mat4(1.0f), position);
+
+    glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(model));
+    glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "view"), 1, GL_FALSE, glm::value_ptr(view));
+    glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
 
     // Используем цвет из переменной color
-    glColor3f(color.r, color.g, color.b);
+    glUniform3fv(glGetUniformLocation(shaderProgram, "color"), 1, glm::value_ptr(color));
 
     glBindVertexArray(VAO);
     glDrawElements(GL_TRIANGLES, vertexCount, GL_UNSIGNED_INT, 0);

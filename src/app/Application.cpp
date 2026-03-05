@@ -10,7 +10,6 @@
 #include <sstream>
 #include <unordered_map>
 
-
 // Статическая функция для обработки скролла
 static void scroll_callback(GLFWwindow* window, double xoffset, double yoffset) {
     void* userPtr = glfwGetWindowUserPointer(window);
@@ -19,7 +18,7 @@ static void scroll_callback(GLFWwindow* window, double xoffset, double yoffset) 
         app->GetCamera().Zoom(static_cast<float>(yoffset));
     }
 }
-
+// Проверка на нажатие кноп мыши не на ui
 bool IsKeyPressedOnce(GLFWwindow* window, int key) {
     static std::unordered_map<int, bool> wasPressed;
     bool pressed = glfwGetKey(window, key) == GLFW_PRESS;
@@ -31,20 +30,17 @@ bool IsKeyPressedOnce(GLFWwindow* window, int key) {
 Application::~Application() = default;
 
 Application::Application()
-
-
     : window(1920, 1080, "CatMesh"), ui(window, this),
     lastMouseX(0), lastMouseY(0), mousePressed(false)
 {
     camera.Update();
     AddDefaultCube();
-
     // Устанавливаем scroll callback
     GLFWwindow* nativeWindow = window.GetNativeWindow();
     glfwSetWindowUserPointer(nativeWindow, this);
     glfwSetScrollCallback(nativeWindow, scroll_callback);
 }
-
+ 
 void Application::AddDefaultCube() {
     auto mesh = std::make_unique<Mesh>();
     mesh->LoadFromFile("");
