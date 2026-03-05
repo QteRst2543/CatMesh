@@ -47,6 +47,15 @@ add_executable(CatMesh_Dev
     src/core/Command.cpp
 )
 
+add_custom_command (TARGET ${PROJECT_NAME} POST_BUILD
+COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:${PROJECT_NAME}>/shaders"
+)
+add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${CMAKE_CURRENT_SOURCE_DIR}/shaders"
+        "$<TARGET_FILE_DIR:${PROJECT_NAME}>/shaders"
+)
+
 # Все include директории
 target_include_directories(CatMesh_Dev PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src
