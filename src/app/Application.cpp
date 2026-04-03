@@ -154,6 +154,13 @@ void Application::Run() {
         HandleInput();
         window.PollEvents();
 
+        // Проверка клавиш для Undo/Redo
+        if (IsKeyPressedOnce(window.GetNativeWindow(), GLFW_KEY_Y))
+            Redo();
+
+        if (IsKeyPressedOnce(window.GetNativeWindow(), GLFW_KEY_Z))
+            Undo();
+
         ui.NewFrame();
         ui.Render();
 
@@ -174,15 +181,6 @@ void Application::Run() {
 
         ui.RenderDrawData();
         window.SwapBuffers();
-    }
-    while(!window.ShouldClose()) {
-        window.PollEvents();
-        if (IsKeyPressedOnce(window.GetNativeWindow(), GLFW_KEY_Y)) 
-            Application::Redo();
-        
-        if (IsKeyPressedOnce(window.GetNativeWindow(), GLFW_KEY_Z))
-            Application::Undo();
-   
     }
 }
 
