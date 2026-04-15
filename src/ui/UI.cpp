@@ -79,7 +79,6 @@ void UIManager::DrawMainMenuBar() {
                 if (ImGui::MenuItem("Dark")) SetTheme(Themes::Dark);
                 if (ImGui::MenuItem("Light")) SetTheme(Themes::Light);
                 if (ImGui::MenuItem("Classic")) SetTheme(Themes::Classic);
-               // if (ImGui::MenuItem("PS1")) SetTheme(Themes::PS1);
                 ImGui::EndMenu();
             }
             ImGui::EndMenu();
@@ -90,8 +89,24 @@ void UIManager::DrawMainMenuBar() {
 
 void UIManager::DrawToolsWindow() {
     ImGui::Begin("Tools");
-    ImGui::Button("Vertex select");
-    ImGui::Button("Move vertex");
+
+    if (ImGui::Button("Object Mode")) {
+        if (app && app->GetSelectedMesh())
+            app->GetSelectedMesh()->SetEditMode(Mesh::EditMode::Object);
+    }
+    if (ImGui::Button("Vertex Mode")) {
+        if (app && app->GetSelectedMesh())
+            app->GetSelectedMesh()->SetEditMode(Mesh::EditMode::Vertex);
+    }
+    if (ImGui::Button("Edge Mode")) {
+        if (app && app->GetSelectedMesh())
+            app->GetSelectedMesh()->SetEditMode(Mesh::EditMode::Edge);
+    }
+    if (ImGui::Button("Face Mode")) {
+        if (app && app->GetSelectedMesh())
+            app->GetSelectedMesh()->SetEditMode(Mesh::EditMode::Face);
+    }
+
     ImGui::End();
 }
 
@@ -132,6 +147,16 @@ void UIManager::DrawObjectParams() {
         }
         if (ImGui::ColorEdit3("Color", glm::value_ptr(col))) {
             app->ExecuteCommand(std::make_unique<ColorCommand>(selected, col));
+        }
+
+        // Отображаем текущий режим редактирования
+        ImGui::Text("Edit Mode: ");
+        ImGui::SameLine();
+        switch (selected->GetEditMode()) {
+        case Mesh::EditMode::Object: ImGui::Text("Object"); break;
+        case Mesh::EditMode::Vertex: ImGui::Text("Vertex"); break;
+        case Mesh::EditMode::Edge: ImGui::Text("Edge"); break;
+        case Mesh::EditMode::Face: ImGui::Text("Face"); break;
         }
     }
     else {

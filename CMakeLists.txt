@@ -7,7 +7,7 @@ set(CMAKE_CXX_STANDARD 17)
 file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/shaders
      DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
 
-# Добавляем GLFW (убедитесь, что путь правильный)
+# Добавляем GLFW
 add_subdirectory(extern/glfw)
 
 # Библиотека glad
@@ -45,11 +45,13 @@ add_executable(CatMesh_Dev
     src/core/Camera.cpp
     src/core/Mesh.cpp
     src/core/Command.cpp
+    src/core/Grid.cpp
 )
 
-add_custom_command (TARGET ${PROJECT_NAME} POST_BUILD
-COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:${PROJECT_NAME}>/shaders"
+add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:${PROJECT_NAME}>/shaders"
 )
+
 add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
         "${CMAKE_CURRENT_SOURCE_DIR}/shaders"
