@@ -15,6 +15,10 @@
 UIManager::UIManager(Window& win, Application* app)
     : window(win), app(app), currentTheme(Themes::Classic)
 {
+    if (!window.IsValid()) {
+        return;
+    }
+
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO(); (void)io;
@@ -23,21 +27,34 @@ UIManager::UIManager(Window& win, Application* app)
 
     ImGui_ImplGlfw_InitForOpenGL(window.GetNativeWindow(), true);
     ImGui_ImplOpenGL3_Init("#version 460");
+    initialized = true;
 }
 
 UIManager::~UIManager() {
+    if (!initialized) {
+        return;
+    }
+
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplGlfw_Shutdown();
     ImGui::DestroyContext();
 }
 
 void UIManager::NewFrame() {
+    if (!initialized) {
+        return;
+    }
+
     ImGui_ImplOpenGL3_NewFrame();
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
 }
 
 void UIManager::Render() {
+    if (!initialized) {
+        return;
+    }
+
     DrawMainMenuBar();
     DrawToolsWindow();
     DrawObjectParams();
@@ -45,6 +62,10 @@ void UIManager::Render() {
 }
 
 void UIManager::RenderDrawData() {
+    if (!initialized) {
+        return;
+    }
+
     ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 }
 
@@ -56,14 +77,14 @@ void UIManager::SetTheme(Themes theme) {
 void UIManager::DrawMainMenuBar() {
     if (ImGui::BeginMainMenuBar()) {
         if (ImGui::BeginMenu("File")) {
-            if (ImGui::MenuItem("Open", "Ctrl+O")) {
+            if (ImGui::MenuItem("Open / Import", "Ctrl+O")) {
                 if (app) app->OpenFile();
             }
-            if (ImGui::MenuItem("Save", "Ctrl+S")) {
+            if (ImGui::MenuItem("Save Scene", "Ctrl+S")) {
                 if (app) app->SaveFile();
             }
             if (ImGui::MenuItem("Export STL")) {
-                if (app) app->ExportSTL("test.stl");
+                if (app) app->ExportSTL("");
             }
             ImGui::EndMenu();
         }
@@ -94,17 +115,35 @@ void UIManager::DrawToolsWindow() {
         if (app && app->GetSelectedMesh())
             app->GetSelectedMesh()->SetEditMode(Mesh::EditMode::Object);
     }
-    if (ImGui::Button("Vertex Mode")) {
-        if (app && app->GetSelectedMesh())
-            app->GetSelectedMesh()->SetEditMode(Mesh::EditMode::Vertex);
-    }
-    if (ImGui::Button("Edge Mode")) {
-        if (app && app->GetSelectedMesh())
-            app->GetSelectedMesh()->SetEditMode(Mesh::EditMode::Edge);
-    }
     if (ImGui::Button("Face Mode")) {
         if (app && app->GetSelectedMesh())
             app->GetSelectedMesh()->SetEditMode(Mesh::EditMode::Face);
+    }
+
+    ImGui::Separator();
+    ImGui::TextWrapped("LMB selects objects in viewport and drags them.");
+    ImGui::TextWrapped("RMB orbits around the scene or the selected object.");
+    ImGui::TextWrapped("Mouse wheel zooms. WASD moves the camera target.");
+
+    if (app && ImGui::CollapsingHeader("Light", ImGuiTreeNodeFlags_DefaultOpen)) {
+        auto& light = app->GetLight();
+
+        ImGui::DragFloat3("Light Position", glm::value_ptr(light.position), 0.1f);
+        if (ImGui::DragFloat3("Light Direction", glm::value_ptr(light.direction), 0.05f)) {
+            if (glm::length(light.direction) > 0.0001f) {
+                light.direction = glm::normalize(light.direction);
+            }
+        }
+
+        ImGui::ColorEdit3("Light Color", glm::value_ptr(light.color));
+        ImGui::SliderFloat("Light Intensity", &light.intensity, 0.1f, 12.0f);
+        ImGui::SliderFloat("Ambient", &light.ambientStrength, 0.05f, 0.6f);
+        ImGui::SliderFloat("Inner Cone", &light.innerCutoffDegrees, 5.0f, 45.0f);
+        ImGui::SliderFloat("Outer Cone", &light.outerCutoffDegrees, 8.0f, 60.0f);
+
+        if (light.outerCutoffDegrees < light.innerCutoffDegrees + 1.0f) {
+            light.outerCutoffDegrees = light.innerCutoffDegrees + 1.0f;
+        }
     }
 
     ImGui::End();
@@ -141,12 +180,13 @@ void UIManager::DrawObjectParams() {
     if (auto* selected = app->GetSelectedMesh()) {
         glm::vec3 pos = selected->GetPosition();
         glm::vec3 col = selected->GetColor();
+        const auto selectedHandle = app->GetSelectedMeshHandle();
 
-        if (ImGui::DragFloat3("Position", glm::value_ptr(pos), 0.1f)) {
-            app->ExecuteCommand(std::make_unique<MoveCommand>(selected, pos));
+        if (selectedHandle && ImGui::DragFloat3("Position", glm::value_ptr(pos), 0.1f)) {
+            app->ExecuteCommand(std::make_unique<MoveCommand>(selectedHandle, pos));
         }
-        if (ImGui::ColorEdit3("Color", glm::value_ptr(col))) {
-            app->ExecuteCommand(std::make_unique<ColorCommand>(selected, col));
+        if (selectedHandle && ImGui::ColorEdit3("Color", glm::value_ptr(col))) {
+            app->ExecuteCommand(std::make_unique<ColorCommand>(selectedHandle, col));
         }
 
         // Отображаем текущий режим редактирования

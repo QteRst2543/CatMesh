@@ -1,6 +1,7 @@
 #pragma once
 #include <vector>
 #include <string>
+#include <optional>
 #include <glm/glm.hpp>  
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
@@ -14,9 +15,23 @@ public:
 
     const std::vector<float>& GetVertices() const { return vertices; }
     const std::vector<unsigned int>& GetIndices() const { return indices; }
+    const std::vector<glm::vec3>& GetEditableVertices() const { return editableVertices; }
+    const std::vector<std::vector<int>>& GetFaces() const { return faces; }
 
     bool LoadFromFile(const std::string& filename);
-    void Draw(const glm::mat4& view, const glm::mat4& projection);
+    bool SetGeometry(const std::vector<glm::vec3>& newVertices, const std::vector<std::vector<int>>& newFaces);
+    void Draw(
+        const glm::mat4& view,
+        const glm::mat4& projection,
+        const glm::vec3& cameraPosition,
+        const glm::vec3& lightPosition,
+        const glm::vec3& lightDirection,
+        const glm::vec3& lightColor,
+        float lightIntensity,
+        float ambientStrength,
+        float innerCutoffDegrees,
+        float outerCutoffDegrees
+    );
 
     void SetPosition(const glm::vec3& pos) { position = pos; }
     void SetColor(const glm::vec3& col) { color = col; }
@@ -36,13 +51,14 @@ public:
     void DragSelectedElement(const glm::vec3& delta);
     glm::vec3 GetFaceCenter(int faceIndex) const;
     glm::vec3 GetVertexPosition(int vertexIndex) const;
-    bool IntersectRay(const glm::vec3& rayOrigin, const glm::vec3& rayDir) const;
+    bool IntersectRay(const glm::vec3& rayOrigin, const glm::vec3& rayDir, float* hitDistance = nullptr) const;
 
 private:
     unsigned int VAO, VBO, EBO;
     unsigned int shaderProgram;
     int vertexCount;
 
+    std::vector<glm::vec3> editableVertices;
     std::vector<float> vertices;
     std::vector<unsigned int> indices;
     std::vector<std::vector<int>> faces;
@@ -56,5 +72,7 @@ private:
     int selectedVertex = -1;
 
     void CreateShaderProgram();
-    std::string LoadShaderSource(const std::string& filepath);
+    void RebuildFaceCenters();
+    void RebuildRenderData();
+    void UploadBuffers();
 };

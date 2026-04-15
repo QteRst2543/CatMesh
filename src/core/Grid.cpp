@@ -146,18 +146,19 @@ void Grid::Draw(const glm::mat4& view, const glm::mat4& projection) {
     glBindVertexArray(0);
 }
 
-void Grid::DrawAxes(const glm::mat4& view, const glm::mat4& projection) {
+void Grid::DrawAxes(const glm::mat4& view, const glm::mat4& projection, const glm::vec3& origin, float scale) {
     static unsigned int shaderProgram = 0;
     if (!shaderProgram) {
         const char* vertexShader = "#version 460 core\n"
             "layout (location = 0) in vec3 aPos;\n"
             "layout (location = 1) in vec3 aColor;\n"
             "out vec3 Color;\n"
+            "uniform mat4 model;\n"
             "uniform mat4 view;\n"
             "uniform mat4 projection;\n"
             "void main() {\n"
             "    Color = aColor;\n"
-            "    gl_Position = projection * view * vec4(aPos, 1.0);\n"
+            "    gl_Position = projection * view * model * vec4(aPos, 1.0);\n"
             "}\n";
 
         const char* fragmentShader = "#version 460 core\n"
@@ -185,6 +186,9 @@ void Grid::DrawAxes(const glm::mat4& view, const glm::mat4& projection) {
     }
 
     glUseProgram(shaderProgram);
+    const glm::mat4 model = glm::translate(glm::mat4(1.0f), origin) *
+        glm::scale(glm::mat4(1.0f), glm::vec3(scale));
+    glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(model));
     glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "view"), 1, GL_FALSE, glm::value_ptr(view));
     glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
 

@@ -2,12 +2,23 @@
 #include <glad/glad.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/type_ptr.hpp>
+#include <algorithm>
+#include <cctype>
+#include <cmath>
+#include <cfloat>
+#include <filesystem>
 #include <fstream>
+#include <iostream>
+#include <limits>
+#include <optional>
+#include <set>
 #include <sstream>
 #include <string>
-#include <iostream>
 #include <vector>
-#include <float.h>
+
+namespace {
+
+constexpr int kRenderStride = 6;
 
 std::string LoadFile(const std::string& path) {
     std::ifstream file(path);
@@ -15,6 +26,7 @@ std::string LoadFile(const std::string& path) {
         std::cerr << "Failed to open file: " << path << std::endl;
         return "";
     }
+
     std::stringstream buffer;
     buffer << file.rdbuf();
     return buffer.str();
@@ -26,7 +38,7 @@ unsigned int CompileShader(unsigned int type, const std::string& source) {
     glShaderSource(shader, 1, &src, nullptr);
     glCompileShader(shader);
 
-    int success;
+    int success = 0;
     glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
     if (!success) {
         char infoLog[512];
@@ -35,8 +47,178 @@ unsigned int CompileShader(unsigned int type, const std::string& source) {
         glDeleteShader(shader);
         return 0;
     }
+
     return shader;
 }
+
+glm::vec3 SafeNormalize(const glm::vec3& value) {
+    const float len = glm::length(value);
+    if (len <= 0.00001f) {
+        return glm::vec3(0.0f, 1.0f, 0.0f);
+    }
+    return value / len;
+}
+
+std::vector<glm::vec3> CreateDefaultCubeVertices() {
+    return {
+        {-0.5f, -0.5f, -0.5f},
+        { 0.5f, -0.5f, -0.5f},
+        { 0.5f,  0.5f, -0.5f},
+        {-0.5f,  0.5f, -0.5f},
+        {-0.5f, -0.5f,  0.5f},
+        { 0.5f, -0.5f,  0.5f},
+        { 0.5f,  0.5f,  0.5f},
+        {-0.5f,  0.5f,  0.5f},
+    };
+}
+
+std::vector<std::vector<int>> CreateDefaultCubeFaces() {
+    return {
+        {0, 1, 2, 3},
+        {4, 5, 6, 7},
+        {0, 4, 7, 3},
+        {1, 5, 6, 2},
+        {3, 2, 6, 7},
+        {0, 1, 5, 4},
+    };
+}
+
+std::optional<int> ParseObjVertexIndex(const std::string& token, std::size_t vertexCount) {
+    if (token.empty()) {
+        return std::nullopt;
+    }
+
+    const std::size_t slashPos = token.find('/');
+    const std::string indexToken = token.substr(0, slashPos);
+    if (indexToken.empty()) {
+        return std::nullopt;
+    }
+
+    int rawIndex = 0;
+    try {
+        rawIndex = std::stoi(indexToken);
+    }
+    catch (...) {
+        return std::nullopt;
+    }
+
+    if (rawIndex > 0) {
+        rawIndex -= 1;
+    }
+    else if (rawIndex < 0) {
+        rawIndex = static_cast<int>(vertexCount) + rawIndex;
+    }
+
+    if (rawIndex < 0 || rawIndex >= static_cast<int>(vertexCount)) {
+        return std::nullopt;
+    }
+
+    return rawIndex;
+}
+
+bool LoadObjGeometry(
+    const std::string& path,
+    std::vector<glm::vec3>& outVertices,
+    std::vector<std::vector<int>>& outFaces
+) {
+    std::ifstream file(path);
+    if (!file.is_open()) {
+        std::cerr << "Failed to open OBJ file: " << path << std::endl;
+        return false;
+    }
+
+    std::vector<glm::vec3> parsedVertices;
+    std::vector<std::vector<int>> parsedFaces;
+    std::string line;
+
+    while (std::getline(file, line)) {
+        if (line.empty() || line[0] == '#') {
+            continue;
+        }
+
+        std::istringstream lineStream(line);
+        std::string prefix;
+        lineStream >> prefix;
+
+        if (prefix == "v") {
+            glm::vec3 vertex(0.0f);
+            if (!(lineStream >> vertex.x >> vertex.y >> vertex.z)) {
+                std::cerr << "Malformed OBJ vertex line: " << line << std::endl;
+                return false;
+            }
+            parsedVertices.push_back(vertex);
+        }
+        else if (prefix == "f") {
+            std::vector<int> face;
+            std::string token;
+            while (lineStream >> token) {
+                const auto parsedIndex = ParseObjVertexIndex(token, parsedVertices.size());
+                if (!parsedIndex.has_value()) {
+                    std::cerr << "Malformed OBJ face token: " << token << std::endl;
+                    return false;
+                }
+                face.push_back(*parsedIndex);
+            }
+
+            if (face.size() < 3) {
+                std::cerr << "OBJ face must have at least 3 vertices." << std::endl;
+                return false;
+            }
+
+            parsedFaces.push_back(std::move(face));
+        }
+    }
+
+    if (parsedVertices.empty() || parsedFaces.empty()) {
+        std::cerr << "OBJ file does not contain geometry: " << path << std::endl;
+        return false;
+    }
+
+    outVertices = std::move(parsedVertices);
+    outFaces = std::move(parsedFaces);
+    return true;
+}
+
+bool IntersectTriangle(
+    const glm::vec3& rayOrigin,
+    const glm::vec3& rayDir,
+    const glm::vec3& v0,
+    const glm::vec3& v1,
+    const glm::vec3& v2,
+    float& hitDistance
+) {
+    const glm::vec3 edge1 = v1 - v0;
+    const glm::vec3 edge2 = v2 - v0;
+    const glm::vec3 h = glm::cross(rayDir, edge2);
+    const float a = glm::dot(edge1, h);
+
+    if (std::fabs(a) < 0.0001f) {
+        return false;
+    }
+
+    const float f = 1.0f / a;
+    const glm::vec3 s = rayOrigin - v0;
+    const float u = f * glm::dot(s, h);
+    if (u < 0.0f || u > 1.0f) {
+        return false;
+    }
+
+    const glm::vec3 q = glm::cross(s, edge1);
+    const float v = f * glm::dot(rayDir, q);
+    if (v < 0.0f || u + v > 1.0f) {
+        return false;
+    }
+
+    const float t = f * glm::dot(edge2, q);
+    if (t <= 0.0001f) {
+        return false;
+    }
+
+    hitDistance = t;
+    return true;
+}
+
+} // namespace
 
 void Mesh::CreateShaderProgram() {
     std::string vertexCode = LoadFile("shaders/basic.vert");
@@ -47,8 +229,8 @@ void Mesh::CreateShaderProgram() {
         return;
     }
 
-    unsigned int vertexShader = CompileShader(GL_VERTEX_SHADER, vertexCode);
-    unsigned int fragmentShader = CompileShader(GL_FRAGMENT_SHADER, fragmentCode);
+    const unsigned int vertexShader = CompileShader(GL_VERTEX_SHADER, vertexCode);
+    const unsigned int fragmentShader = CompileShader(GL_FRAGMENT_SHADER, fragmentCode);
 
     if (!vertexShader || !fragmentShader) {
         std::cerr << "Shader compilation failed!" << std::endl;
@@ -60,7 +242,7 @@ void Mesh::CreateShaderProgram() {
     glAttachShader(shaderProgram, fragmentShader);
     glLinkProgram(shaderProgram);
 
-    int success;
+    int success = 0;
     glGetProgramiv(shaderProgram, GL_LINK_STATUS, &success);
     if (!success) {
         char infoLog[512];
@@ -72,13 +254,19 @@ void Mesh::CreateShaderProgram() {
 
     glDeleteShader(vertexShader);
     glDeleteShader(fragmentShader);
-
-    std::cout << "Shader program created successfully: " << shaderProgram << std::endl;
 }
 
-Mesh::Mesh() : VAO(0), VBO(0), EBO(0), shaderProgram(0), vertexCount(0),
-position(0.0f), color(0.5f, 0.5f, 0.5f), editMode(EditMode::Object),
-selectedFace(-1), selectedVertex(-1) {
+Mesh::Mesh()
+    : VAO(0),
+      VBO(0),
+      EBO(0),
+      shaderProgram(0),
+      vertexCount(0),
+      position(0.0f),
+      color(0.5f, 0.5f, 0.5f),
+      editMode(EditMode::Object),
+      selectedFace(-1),
+      selectedVertex(-1) {
     CreateShaderProgram();
 }
 
@@ -90,225 +278,291 @@ Mesh::~Mesh() {
 }
 
 bool Mesh::LoadFromFile(const std::string& filename) {
-    // простой куб 
-    vertices = {
-        //задняя
-       -0.5f,-0.5f,-0.5f, 0,0,-1,
-       0.5f,-0.5f,-0.5f, 0,0,-1,
-       0.5f,0.5f,-0.5f, 0,0,-1,
-       -0.5f,0.5f,-0.5f, 0,0,-1,
-       //передняя
-       -0.5f,-0.5f,0.5f, 0,0,1,
-       0.5f,-0.5f,0.5f, 0,0,1,
-       0.5f,0.5f,0.5f, 0,0,1,
-       -0.5f,0.5f,0.5f, 0,0,1,
-       //левая
-       -0.5f,-0.5f,-0.5f, -1,0,0,
-       -0.5f,0.5f,-0.5f, -1,0,0,
-       -0.5f,0.5f,0.5f, -1,0,0,
-       -0.5f,-0.5f,0.5f, -1,0,0,
-       //правая
-       0.5f,-0.5f,-0.5f, 1,0,0,
-       0.5f,0.5f,-0.5f, 1,0,0,
-       0.5f,0.5f,0.5f, 1,0,0,
-       0.5f,-0.5f,0.5f, 1,0,0,
-       //верхняя
-       -0.5f,0.5f,-0.5f, 0,1,0,
-       0.5f,0.5f,-0.5f, 0,1,0,
-       0.5f,0.5f,0.5f, 0,1,0,
-       -0.5f,0.5f,0.5f, 0,1,0,
-       //нижняя
-       -0.5f,-0.5f,-0.5f, 0,-1,0,
-       0.5f,-0.5f,-0.5f, 0,-1,0,
-       0.5f,-0.5f,0.5f, 0,-1,0,
-       -0.5f,-0.5f,0.5f, 0,-1,0,
-    };
-
-    indices = {
-       0,1,2, 2,3,0,  // задняя
-       4,5,6, 6,7,4,  // передняя
-       8,9,10, 10,11,8,  // левая
-       12,13,14, 14,15,12,  // правая
-       16,17,18, 18,19,16,  // верхняя
-       20,21,22, 22,23,20   // нижняя
-    };
-
-    // Создаем список граней
-    faces.clear();
-    faceCenters.clear();
-    for (size_t i = 0; i < indices.size(); i += 3) {
-        faces.push_back({ (int)indices[i], (int)indices[i + 1], (int)indices[i + 2] });
-
-        // Вычисляем центр грани
-        glm::vec3 center(0.0f);
-        for (int j = 0; j < 3; j++) {
-            center.x += vertices[indices[i + j] * 3];
-            center.y += vertices[indices[i + j] * 3 + 1];
-            center.z += vertices[indices[i + j] * 3 + 2];
-        }
-        center /= 3.0f;
-        faceCenters.push_back(center);
+    if (filename.empty()) {
+        return SetGeometry(CreateDefaultCubeVertices(), CreateDefaultCubeFaces());
     }
 
-    vertexCount = indices.size();
+    std::filesystem::path filePath(filename);
+    std::string extension = filePath.extension().string();
+    std::transform(extension.begin(), extension.end(), extension.begin(),
+        [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
 
-    glGenVertexArrays(1, &VAO);
-    glGenBuffers(1, &VBO);
-    glGenBuffers(1, &EBO);
+    if (extension == ".obj") {
+        std::vector<glm::vec3> objVertices;
+        std::vector<std::vector<int>> objFaces;
+        if (!LoadObjGeometry(filename, objVertices, objFaces)) {
+            return false;
+        }
+        return SetGeometry(objVertices, objFaces);
+    }
+
+    std::cerr << "Unsupported mesh format: " << filename << std::endl;
+    return false;
+}
+
+bool Mesh::SetGeometry(const std::vector<glm::vec3>& newVertices, const std::vector<std::vector<int>>& newFaces) {
+    if (newVertices.empty() || newFaces.empty()) {
+        std::cerr << "Mesh geometry cannot be empty." << std::endl;
+        return false;
+    }
+
+    for (const auto& face : newFaces) {
+        if (face.size() < 3) {
+            std::cerr << "Each face must contain at least 3 vertices." << std::endl;
+            return false;
+        }
+
+        for (int index : face) {
+            if (index < 0 || index >= static_cast<int>(newVertices.size())) {
+                std::cerr << "Face index is out of range." << std::endl;
+                return false;
+            }
+        }
+    }
+
+    editableVertices = newVertices;
+    faces = newFaces;
+    selectedFace = -1;
+    selectedVertex = -1;
+
+    RebuildFaceCenters();
+    RebuildRenderData();
+    UploadBuffers();
+    return true;
+}
+
+void Mesh::RebuildFaceCenters() {
+    faceCenters.clear();
+    faceCenters.reserve(faces.size());
+
+    for (const auto& face : faces) {
+        glm::vec3 center(0.0f);
+        for (int vertexIndex : face) {
+            center += editableVertices[vertexIndex];
+        }
+        center /= static_cast<float>(face.size());
+        faceCenters.push_back(center);
+    }
+}
+
+void Mesh::RebuildRenderData() {
+    vertices.clear();
+    indices.clear();
+
+    unsigned int nextIndex = 0;
+    for (const auto& face : faces) {
+        for (std::size_t i = 1; i + 1 < face.size(); ++i) {
+            const glm::vec3& p0 = editableVertices[face[0]];
+            const glm::vec3& p1 = editableVertices[face[i]];
+            const glm::vec3& p2 = editableVertices[face[i + 1]];
+            const glm::vec3 normal = SafeNormalize(glm::cross(p1 - p0, p2 - p0));
+
+            const glm::vec3 triangleVertices[3] = { p0, p1, p2 };
+            for (const glm::vec3& vertex : triangleVertices) {
+                vertices.push_back(vertex.x);
+                vertices.push_back(vertex.y);
+                vertices.push_back(vertex.z);
+                vertices.push_back(normal.x);
+                vertices.push_back(normal.y);
+                vertices.push_back(normal.z);
+                indices.push_back(nextIndex++);
+            }
+        }
+    }
+
+    vertexCount = static_cast<int>(indices.size());
+}
+
+void Mesh::UploadBuffers() {
+    if (VAO == 0) {
+        glGenVertexArrays(1, &VAO);
+        glGenBuffers(1, &VBO);
+        glGenBuffers(1, &EBO);
+    }
 
     glBindVertexArray(VAO);
 
     glBindBuffer(GL_ARRAY_BUFFER, VBO);
-    glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(float), vertices.data(), GL_STATIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(float), vertices.data(), GL_DYNAMIC_DRAW);
 
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(unsigned int), indices.data(), GL_STATIC_DRAW);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(unsigned int), indices.data(), GL_DYNAMIC_DRAW);
 
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, kRenderStride * sizeof(float), (void*)0);
     glEnableVertexAttribArray(0);
 
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3 * sizeof(float)));
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, kRenderStride * sizeof(float), (void*)(3 * sizeof(float)));
     glEnableVertexAttribArray(1);
 
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
     glBindVertexArray(0);
-
-    std::cout << "Cube loaded successfully. Vertex count: " << vertexCount << std::endl;
-    return true;
 }
 
-void Mesh::Draw(const glm::mat4& view, const glm::mat4& projection) {
-    if (!shaderProgram) {
-        std::cerr << "No shader program!" << std::endl;
+void Mesh::Draw(
+    const glm::mat4& view,
+    const glm::mat4& projection,
+    const glm::vec3& cameraPosition,
+    const glm::vec3& lightPosition,
+    const glm::vec3& lightDirection,
+    const glm::vec3& lightColor,
+    float lightIntensity,
+    float ambientStrength,
+    float innerCutoffDegrees,
+    float outerCutoffDegrees
+) {
+    if (!shaderProgram || vertexCount == 0) {
         return;
     }
 
     glUseProgram(shaderProgram);
 
-    glm::vec3 lightPos(3.0f, 3.0f, 3.0f);
-    glUniform3fv(glGetUniformLocation(shaderProgram, "lightPos"), 1, glm::value_ptr(lightPos));
-
-    glm::mat4 model = glm::translate(glm::mat4(1.0f), position);
-
+    const glm::mat4 model = glm::translate(glm::mat4(1.0f), position);
     glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(model));
     glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "view"), 1, GL_FALSE, glm::value_ptr(view));
     glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
-
     glUniform3fv(glGetUniformLocation(shaderProgram, "color"), 1, glm::value_ptr(color));
+    glUniform3fv(glGetUniformLocation(shaderProgram, "viewPos"), 1, glm::value_ptr(cameraPosition));
+    glUniform3fv(glGetUniformLocation(shaderProgram, "lightPos"), 1, glm::value_ptr(lightPosition));
+    glUniform3fv(glGetUniformLocation(shaderProgram, "lightDir"), 1, glm::value_ptr(lightDirection));
+    glUniform3fv(glGetUniformLocation(shaderProgram, "lightColor"), 1, glm::value_ptr(lightColor));
+    glUniform1f(glGetUniformLocation(shaderProgram, "lightIntensity"), lightIntensity);
+    glUniform1f(glGetUniformLocation(shaderProgram, "ambientStrength"), ambientStrength);
+    glUniform1f(glGetUniformLocation(shaderProgram, "innerCutoff"), glm::cos(glm::radians(innerCutoffDegrees)));
+    glUniform1f(glGetUniformLocation(shaderProgram, "outerCutoff"), glm::cos(glm::radians(outerCutoffDegrees)));
 
     glBindVertexArray(VAO);
     glDrawElements(GL_TRIANGLES, vertexCount, GL_UNSIGNED_INT, 0);
     glBindVertexArray(0);
 }
 
-// Реализация новых методов
 void Mesh::SetEditMode(EditMode mode) {
     editMode = mode;
     selectedFace = -1;
     selectedVertex = -1;
-    std::cout << "Edit mode changed to: " << (int)mode << std::endl;
 }
 
 glm::vec3 Mesh::GetFaceCenter(int faceIndex) const {
-    if (faceIndex >= 0 && faceIndex < (int)faceCenters.size()) {
+    if (faceIndex >= 0 && faceIndex < static_cast<int>(faceCenters.size())) {
         return faceCenters[faceIndex];
     }
     return glm::vec3(0.0f);
 }
 
 glm::vec3 Mesh::GetVertexPosition(int vertexIndex) const {
-    if (vertexIndex >= 0 && vertexIndex < (int)vertices.size() / 3) {
-        return glm::vec3(vertices[vertexIndex * 3],
-            vertices[vertexIndex * 3 + 1],
-            vertices[vertexIndex * 3 + 2]);
+    if (vertexIndex >= 0 && vertexIndex < static_cast<int>(editableVertices.size())) {
+        return editableVertices[vertexIndex];
     }
     return glm::vec3(0.0f);
 }
 
 void Mesh::UpdateSelectionFromMouse(const glm::vec3& rayOrigin, const glm::vec3& rayDir) {
-    float closestDist = FLT_MAX;
     selectedFace = -1;
     selectedVertex = -1;
 
     if (editMode == EditMode::Face) {
-        for (size_t i = 0; i < faces.size(); i++) {
-            const auto& face = faces[i];
-            glm::vec3 v0(vertices[face[0] * 3], vertices[face[0] * 3 + 1], vertices[face[0] * 3 + 2]);
-            glm::vec3 v1(vertices[face[1] * 3], vertices[face[1] * 3 + 1], vertices[face[1] * 3 + 2]);
-            glm::vec3 v2(vertices[face[2] * 3], vertices[face[2] * 3 + 1], vertices[face[2] * 3 + 2]);
+        float closestDistance = std::numeric_limits<float>::max();
 
-            v0 += position;
-            v1 += position;
-            v2 += position;
+        for (std::size_t faceIndex = 0; faceIndex < faces.size(); ++faceIndex) {
+            const auto& face = faces[faceIndex];
+            for (std::size_t i = 1; i + 1 < face.size(); ++i) {
+                const glm::vec3 v0 = editableVertices[face[0]] + position;
+                const glm::vec3 v1 = editableVertices[face[i]] + position;
+                const glm::vec3 v2 = editableVertices[face[i + 1]] + position;
 
-            glm::vec3 edge1 = v1 - v0;
-            glm::vec3 edge2 = v2 - v0;
-            glm::vec3 h = glm::cross(rayDir, edge2);
-            float a = glm::dot(edge1, h);
-
-            if (a > -0.0001f && a < 0.0001f) continue;
-
-            float f = 1.0f / a;
-            glm::vec3 s = rayOrigin - v0;
-            float u = f * glm::dot(s, h);
-            if (u < 0.0f || u > 1.0f) continue;
-
-            glm::vec3 q = glm::cross(s, edge1);
-            float v = f * glm::dot(rayDir, q);
-            if (v < 0.0f || u + v > 1.0f) continue;
-
-            float t = f * glm::dot(edge2, q);
-            if (t > 0.0001f && t < closestDist) {
-                closestDist = t;
-                selectedFace = i;
+                float hitDistance = 0.0f;
+                if (IntersectTriangle(rayOrigin, rayDir, v0, v1, v2, hitDistance) &&
+                    hitDistance < closestDistance) {
+                    closestDistance = hitDistance;
+                    selectedFace = static_cast<int>(faceIndex);
+                }
             }
         }
-        if (selectedFace >= 0) {
-            std::cout << "Selected face: " << selectedFace << std::endl;
+    }
+    else if (editMode == EditMode::Vertex) {
+        float closestDistance = std::numeric_limits<float>::max();
+
+        for (std::size_t vertexIndex = 0; vertexIndex < editableVertices.size(); ++vertexIndex) {
+            const glm::vec3 worldVertex = editableVertices[vertexIndex] + position;
+            const float projection = glm::dot(worldVertex - rayOrigin, rayDir);
+            if (projection <= 0.0f) {
+                continue;
+            }
+
+            const glm::vec3 nearestPoint = rayOrigin + rayDir * projection;
+            const float rayDistance = glm::length(worldVertex - nearestPoint);
+            const float threshold = 0.08f + projection * 0.02f;
+            if (rayDistance < threshold && rayDistance < closestDistance) {
+                closestDistance = rayDistance;
+                selectedVertex = static_cast<int>(vertexIndex);
+            }
         }
     }
 }
 
 void Mesh::DragSelectedElement(const glm::vec3& delta) {
-    if (editMode == EditMode::Face && selectedFace >= 0) {
-        for (int idx : faces[selectedFace]) {
-            vertices[idx * 3] += delta.x;
-            vertices[idx * 3 + 1] += delta.y;
-            vertices[idx * 3 + 2] += delta.z;
-        }
-
-        glBindBuffer(GL_ARRAY_BUFFER, VBO);
-        glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(float), vertices.data(), GL_DYNAMIC_DRAW);
-
-        for (size_t i = 0; i < faces.size(); i++) {
-            glm::vec3 center(0.0f);
-            for (int idx : faces[i]) {
-                center.x += vertices[idx * 3];
-                center.y += vertices[idx * 3 + 1];
-                center.z += vertices[idx * 3 + 2];
-            }
-            center /= 3.0f;
-            faceCenters[i] = center;
+    if (editMode == EditMode::Face && selectedFace >= 0 && selectedFace < static_cast<int>(faces.size())) {
+        std::set<int> uniqueVertices(faces[selectedFace].begin(), faces[selectedFace].end());
+        for (int vertexIndex : uniqueVertices) {
+            editableVertices[vertexIndex] += delta;
         }
     }
+    else if (editMode == EditMode::Vertex && selectedVertex >= 0 &&
+             selectedVertex < static_cast<int>(editableVertices.size())) {
+        editableVertices[selectedVertex] += delta;
+    }
+    else {
+        return;
+    }
+
+    RebuildFaceCenters();
+    RebuildRenderData();
+    UploadBuffers();
 }
 
-bool Mesh::IntersectRay(const glm::vec3& rayOrigin, const glm::vec3& rayDir) const {
-    glm::vec3 min = position - glm::vec3(0.5f);
-    glm::vec3 max = position + glm::vec3(0.5f);
+bool Mesh::IntersectRay(const glm::vec3& rayOrigin, const glm::vec3& rayDir, float* hitDistance) const {
+    if (editableVertices.empty()) {
+        return false;
+    }
 
-    float t1 = (min.x - rayOrigin.x) / rayDir.x;
-    float t2 = (max.x - rayOrigin.x) / rayDir.x;
-    float t3 = (min.y - rayOrigin.y) / rayDir.y;
-    float t4 = (max.y - rayOrigin.y) / rayDir.y;
-    float t5 = (min.z - rayOrigin.z) / rayDir.z;
-    float t6 = (max.z - rayOrigin.z) / rayDir.z;
+    glm::vec3 minBounds = editableVertices.front() + position;
+    glm::vec3 maxBounds = editableVertices.front() + position;
+    for (const glm::vec3& vertex : editableVertices) {
+        const glm::vec3 worldVertex = vertex + position;
+        minBounds = glm::min(minBounds, worldVertex);
+        maxBounds = glm::max(maxBounds, worldVertex);
+    }
 
-    float tmin = std::max(std::max(std::min(t1, t2), std::min(t3, t4)), std::min(t5, t6));
-    float tmax = std::min(std::min(std::max(t1, t2), std::max(t3, t4)), std::max(t5, t6));
+    float tMin = 0.0f;
+    float tMax = std::numeric_limits<float>::max();
 
-    if (tmax < 0) return false;
-    if (tmin > tmax) return false;
+    for (int axis = 0; axis < 3; ++axis) {
+        const float origin = rayOrigin[axis];
+        const float direction = rayDir[axis];
+        const float minValue = minBounds[axis];
+        const float maxValue = maxBounds[axis];
+
+        if (std::fabs(direction) < 0.00001f) {
+            if (origin < minValue || origin > maxValue) {
+                return false;
+            }
+            continue;
+        }
+
+        float axisMin = (minValue - origin) / direction;
+        float axisMax = (maxValue - origin) / direction;
+        if (axisMin > axisMax) {
+            std::swap(axisMin, axisMax);
+        }
+
+        tMin = std::max(tMin, axisMin);
+        tMax = std::min(tMax, axisMax);
+        if (tMin > tMax) {
+            return false;
+        }
+    }
+
+    if (hitDistance) {
+        *hitDistance = tMin;
+    }
 
     return true;
 }

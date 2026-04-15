@@ -19,27 +19,27 @@ public:
     void Undo() override;
 private:
     Application* app;
-    Mesh* newMesh;
+    std::shared_ptr<Mesh> newMesh;
 };
 
 class MoveCommand : public Command {
 public:
-    MoveCommand(Mesh* mesh, const glm::vec3& newPos);
+    MoveCommand(const std::shared_ptr<Mesh>& mesh, const glm::vec3& newPos);
     void Execute() override;
     void Undo() override;
 private:
-    Mesh* mesh;
+    std::weak_ptr<Mesh> mesh;
     glm::vec3 oldPos;
     glm::vec3 newPos;
 };
 
 class ColorCommand : public Command {
 public:
-    ColorCommand(Mesh* mesh, const glm::vec3& newColor);
+    ColorCommand(const std::shared_ptr<Mesh>& mesh, const glm::vec3& newColor);
     void Execute() override;
     void Undo() override;
 private:
-    Mesh* mesh;
+    std::weak_ptr<Mesh> mesh;
     glm::vec3 oldColor;
     glm::vec3 newColor;
 };

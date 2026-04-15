@@ -18,6 +18,7 @@ private:
     Window& window;
     Application* app;
     Themes currentTheme;
+    bool initialized = false;
 
     void DrawMainMenuBar();
     void DrawToolsWindow();

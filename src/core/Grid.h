@@ -6,7 +6,7 @@ class Grid {
 public:
     Grid();
     void Draw(const glm::mat4& view, const glm::mat4& projection);
-    void DrawAxes(const glm::mat4& view, const glm::mat4& projection);
+    void DrawAxes(const glm::mat4& view, const glm::mat4& projection, const glm::vec3& origin, float scale = 1.0f);
     void SetSize(int size) { gridSize = size; }
 
 private:

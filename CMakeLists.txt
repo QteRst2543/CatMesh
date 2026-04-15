@@ -75,3 +75,7 @@ target_link_libraries(CatMesh_Dev
     imgui
     opengl32
 )
+
+if (WIN32)
+    target_link_libraries(CatMesh_Dev comdlg32)
+endif()
