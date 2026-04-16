@@ -39,11 +39,15 @@ target_include_directories(imgui PUBLIC
 add_executable(CatMesh_Dev
     src/main.cpp
     src/app/Application.cpp
+    src/app/FileDialog.cpp
     src/Platform/Window.cpp
     src/ui/UI.cpp
     src/ui/Themes.cpp
+    src/ui/Localization.cpp
     src/core/Camera.cpp
     src/core/Mesh.cpp
+    src/core/Shader.cpp
+    src/core/ImageLoader.cpp
     src/core/Command.cpp
     src/core/Grid.cpp
 )
@@ -77,5 +81,5 @@ target_link_libraries(CatMesh_Dev
 )
 
 if (WIN32)
-    target_link_libraries(CatMesh_Dev comdlg32)
+    target_link_libraries(CatMesh_Dev comdlg32 gdiplus)
 endif()

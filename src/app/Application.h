@@ -2,6 +2,7 @@
 
 #include "Platform/Window.h"
 #include "ui/UI.h"
+#include "ui/Localization.h"
 #include "core/Camera.h"
 #include "core/Mesh.h"
 #include "core/Command.h"
@@ -11,26 +12,29 @@
 #include <stack>
 #include <string>
 
-enum class Language {
-    English,
-    Russian
-};
-
 enum class SelectedEntityType {
     None,
     Mesh,
     Light
 };
 
+enum class ToolMode {
+    Select,
+    Move,
+    Rotate,
+    Extrude,
+    Split
+};
+
 struct LightState {
     bool enabled = true;
     glm::vec3 position = glm::vec3(3.0f, 4.0f, 3.0f);
-    glm::vec3 direction = glm::normalize(glm::vec3(-1.0f, -1.2f, -0.8f));
+    glm::vec3 direction = glm::normalize(glm::vec3(-3.0f, -4.0f, -3.0f));
     glm::vec3 color = glm::vec3(1.0f, 0.96f, 0.9f);
     float intensity = 6.0f;
     float ambientStrength = 0.28f;
     float innerCutoffDegrees = 18.0f;
-    float outerCutoffDegrees = 30.0f;
+    float outerCutoffDegrees = 45.0f;
 };
 
 class Application {
@@ -52,11 +56,18 @@ public:
     std::shared_ptr<Mesh> GetSelectedMeshHandle() const;
 
     void SetLanguage(Language newLanguage) { language = newLanguage; }
+    void SetShowLightRays(bool show) { showLightRays = show; }
+    bool GetShowLightRays() const { return showLightRays; }
+    void SetToolMode(ToolMode mode) { toolMode = mode; }
+    ToolMode GetToolMode() const { return toolMode; }
+    void SetRotationAxis(int axis) { rotationAxis = axis; }
+    int GetRotationAxis() const { return rotationAxis; }
     void SelectMesh(Mesh* mesh);
     void SelectLight();
     void AddDefaultCube();
     void AddLightSource();
     void DeleteSelectedMesh();
+    void DeleteSelectedObject();
     void ExecuteCommand(std::unique_ptr<Command> cmd);
     void Undo();
     void Redo();
@@ -67,10 +78,12 @@ public:
 
     // Файловые операции
     void OpenFile();
+    void ImportImage();
     void SaveFile();
     void ExportSTL(const std::string& path);
 
 private:
+    void InitShadowMapping();
     Window window;
     UIManager ui;
     Camera camera;
@@ -81,11 +94,20 @@ private:
     std::stack<std::unique_ptr<Command>> redoStack;
     LightState light;
     Language language = Language::English;
+    bool showLightRays = true;
+    ToolMode toolMode = ToolMode::Select;
+    int rotationAxis = 1;
 
     float lastLeftMouseX, lastLeftMouseY;
     float lastRightMouseX, lastRightMouseY;
     bool leftMousePressed;
     bool rightMousePressed;
+
+    // Shadow mapping
+    unsigned int shadowFBO;
+    unsigned int shadowMap;
+    unsigned int shadowShaderProgram;
+    glm::mat4 lightSpaceMatrix;
     double dragStartMouseX, dragStartMouseY;
     bool isDraggingElement;
     glm::vec3 objectDragOffset;
@@ -95,6 +117,11 @@ private:
     glm::vec3 dragPlanePoint;
     glm::vec3 dragPlaneNormal;
     bool hasDragPlane;
+
+    // Состояние текущей операции Extrude
+    bool extrudeOperationActive = false;
+    bool extrudePerformed = false;
+    int extrudeFaceIndex = -1;
 
     void HandleInput();
     void ClearHistory();

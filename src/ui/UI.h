@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Themes.h"
+#include "Localization.h"
 
 class Application;
 class Window;
@@ -19,8 +20,13 @@ private:
     Application* app;
     Themes currentTheme;
     bool initialized = false;
+    bool showAddObjectModal = false;
+    bool showLightRays = true;
+    float moveStep = 0.25f;
+    float extrudeStep = 0.1f;
 
     void DrawMainMenuBar();
     void DrawToolsWindow();
     void DrawObjectParams();
+    void DrawAddObjectModal();
 };

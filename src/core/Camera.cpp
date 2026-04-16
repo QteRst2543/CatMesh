@@ -19,7 +19,8 @@ glm::mat4 Camera::GetViewMatrix() const {
 }
 
 glm::mat4 Camera::GetProjectionMatrix(float aspect) const {
-    return glm::perspective(glm::radians(45.0f), aspect, 0.1f, 100.0f);
+    const float safeAspect = aspect > 0.0001f ? aspect : 1.0f;
+    return glm::perspective(glm::radians(45.0f), safeAspect, 0.1f, 100.0f);
 }
 
 glm::vec3 Camera::GetForward() const {

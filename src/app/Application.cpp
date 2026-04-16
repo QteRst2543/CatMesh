@@ -1,9 +1,11 @@
 #include "app/Application.h"
-#include <glad/glad.h>
-#include <GLFW/glfw3.h>
+#include "app/FileDialog.h"
 #include "core/Mesh.h"
 #include "core/Grid.h"
+#include "core/Shader.h"
 #include "imgui.h"
+#include <glad/glad.h>
+#include <GLFW/glfw3.h>
 #include <algorithm>
 #include <cctype>
 #include <cmath>
@@ -15,6 +17,10 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+
+namespace {
+
+} // namespace
 
 #ifdef _WIN32
 #ifndef NOMINMAX
@@ -46,25 +52,7 @@ bool IsKeyPressedOnce(GLFWwindow* window, int key) {
 }
 
 #ifdef _WIN32
-std::string ShowWindowsFileDialog(const char* filter, DWORD flags, const char* defaultExtension) {
-    char fileName[MAX_PATH] = {};
-
-    OPENFILENAMEA dialogConfig = {};
-    dialogConfig.lStructSize = sizeof(dialogConfig);
-    dialogConfig.hwndOwner = nullptr;
-    dialogConfig.lpstrFile = fileName;
-    dialogConfig.nMaxFile = MAX_PATH;
-    dialogConfig.lpstrFilter = filter;
-    dialogConfig.nFilterIndex = 1;
-    dialogConfig.Flags = flags;
-    dialogConfig.lpstrDefExt = defaultExtension;
-
-    const BOOL result = (flags & OFN_FILEMUSTEXIST)
-        ? GetOpenFileNameA(&dialogConfig)
-        : GetSaveFileNameA(&dialogConfig);
-
-    return result ? std::string(fileName) : std::string();
-}
+// Функция открытия диалогового окна сохранена в src/app/FileDialog.cpp
 #endif
 
 std::string ToLowerCopy(std::string value) {
@@ -129,6 +117,82 @@ Application::Application()
     GLFWwindow* nativeWindow = window.GetNativeWindow();
     glfwSetWindowUserPointer(nativeWindow, this);
     glfwSetScrollCallback(nativeWindow, scroll_callback);
+
+    InitShadowMapping();
+}
+
+void Application::InitShadowMapping() {
+    // Create shadow shader program
+    std::string shadowVertexCode = LoadFile("shaders/shadow.vert");
+    std::string shadowFragmentCode = LoadFile("shaders/shadow.frag");
+
+    if (shadowVertexCode.empty() || shadowFragmentCode.empty()) {
+        std::cerr << "Failed to load shadow shader files!" << std::endl;
+        shadowFBO = 0;
+        shadowMap = 0;
+        shadowShaderProgram = 0;
+        return;
+    }
+
+    unsigned int shadowVertexShader = CompileShader(GL_VERTEX_SHADER, shadowVertexCode);
+    unsigned int shadowFragmentShader = CompileShader(GL_FRAGMENT_SHADER, shadowFragmentCode);
+
+    if (!shadowVertexShader || !shadowFragmentShader) {
+        std::cerr << "Shadow shader compilation failed!" << std::endl;
+        shadowFBO = 0;
+        shadowMap = 0;
+        shadowShaderProgram = 0;
+        return;
+    }
+
+    shadowShaderProgram = glCreateProgram();
+    glAttachShader(shadowShaderProgram, shadowVertexShader);
+    glAttachShader(shadowShaderProgram, shadowFragmentShader);
+    glLinkProgram(shadowShaderProgram);
+
+    int success = 0;
+    glGetProgramiv(shadowShaderProgram, GL_LINK_STATUS, &success);
+    if (!success) {
+        char infoLog[512];
+        glGetProgramInfoLog(shadowShaderProgram, 512, nullptr, infoLog);
+        std::cerr << "Shadow shader linking failed: " << infoLog << std::endl;
+        glDeleteProgram(shadowShaderProgram);
+        shadowShaderProgram = 0;
+        shadowFBO = 0;
+        shadowMap = 0;
+        glDeleteShader(shadowVertexShader);
+        glDeleteShader(shadowFragmentShader);
+        return;
+    }
+
+    glDeleteShader(shadowVertexShader);
+    glDeleteShader(shadowFragmentShader);
+
+    // Create shadow FBO and texture
+    glGenFramebuffers(1, &shadowFBO);
+    glGenTextures(1, &shadowMap);
+    glBindTexture(GL_TEXTURE_2D, shadowMap);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24, 2048, 2048, 0, GL_DEPTH_COMPONENT, GL_FLOAT, NULL);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_NONE);
+    float borderColor[] = { 1.0f, 1.0f, 1.0f, 1.0f };
+    glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, borderColor);
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, shadowFBO);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, shadowMap, 0);
+    glDrawBuffer(GL_NONE);
+    glReadBuffer(GL_NONE);
+
+    GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+    if (status != GL_FRAMEBUFFER_COMPLETE) {
+        std::cerr << "Shadow framebuffer is not complete: " << status << std::endl;
+    }
+
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
 
 void Application::ClearHistory() {
@@ -150,7 +214,6 @@ void Application::AddDefaultCube() {
     mesh->SetPosition(glm::vec3(0.0f));
     mesh->SetColor(glm::vec3(0.5f, 0.5f, 0.5f));
     mesh->SetEditMode(Mesh::EditMode::Object);
-    selectedMesh = mesh.get();
     meshes.push_back(mesh);
 }
 
@@ -167,7 +230,19 @@ void Application::DeleteSelectedMesh() {
 
     ClearHistory();
     meshes.erase(it);
-    selectedMesh = meshes.empty() ? nullptr : meshes.front().get();
+    selectedMesh = nullptr;
+    selectedEntityType = SelectedEntityType::None;
+}
+
+void Application::DeleteSelectedObject() {
+    if (selectedEntityType == SelectedEntityType::Mesh) {
+        DeleteSelectedMesh();
+    }
+    else if (selectedEntityType == SelectedEntityType::Light) {
+        light.enabled = false;
+        selectedEntityType = SelectedEntityType::None;
+        selectedMesh = nullptr;
+    }
 }
 
 void Application::ExecuteCommand(std::unique_ptr<Command> cmd) {
@@ -202,7 +277,6 @@ void Application::Redo() {
 
 Mesh* Application::AddMesh(const std::shared_ptr<Mesh>& mesh) {
     Mesh* raw = mesh.get();
-    selectedMesh = raw;
     meshes.push_back(mesh);
     return raw;
 }
@@ -216,7 +290,8 @@ void Application::RemoveMesh(Mesh* mesh) {
 
     meshes.erase(it);
     if (selectedMesh == mesh) {
-        selectedMesh = meshes.empty() ? nullptr : meshes.front().get();
+        selectedMesh = nullptr;
+        selectedEntityType = SelectedEntityType::None;
     }
 }
 
@@ -258,29 +333,32 @@ void Application::HandleCameraKeyboard(GLFWwindow* glfwWindow, float deltaTime, 
         return;
     }
 
-    float forwardAmount = 0.0f;
-    float rightAmount = 0.0f;
+    glm::vec3 moveDelta(0.0f);
     float moveSpeed = 4.0f * deltaTime;
     if (glfwGetKey(glfwWindow, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS ||
         glfwGetKey(glfwWindow, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS) {
         moveSpeed *= 2.0f;
     }
 
+    // Get camera direction vectors (with full Y component for vertical movement)
+    glm::vec3 forward = camera.GetForward();
+    glm::vec3 right = camera.GetRight();
+
     if (glfwGetKey(glfwWindow, GLFW_KEY_W) == GLFW_PRESS) {
-        forwardAmount += moveSpeed;
+        moveDelta += forward * moveSpeed;
     }
     if (glfwGetKey(glfwWindow, GLFW_KEY_S) == GLFW_PRESS) {
-        forwardAmount -= moveSpeed;
+        moveDelta -= forward * moveSpeed;
     }
     if (glfwGetKey(glfwWindow, GLFW_KEY_D) == GLFW_PRESS) {
-        rightAmount += moveSpeed;
+        moveDelta += right * moveSpeed;
     }
     if (glfwGetKey(glfwWindow, GLFW_KEY_A) == GLFW_PRESS) {
-        rightAmount -= moveSpeed;
+        moveDelta -= right * moveSpeed;
     }
 
-    if (forwardAmount != 0.0f || rightAmount != 0.0f) {
-        camera.MoveTargetLocal(forwardAmount, rightAmount);
+    if (glm::length(moveDelta) > 0.0001f) {
+        camera.MoveTarget(moveDelta);
     }
 }
 
@@ -310,6 +388,10 @@ void Application::HandleInput() {
     const glm::vec3 cameraPos = camera.GetPosition();
     const glm::vec3 rayDir = GetRayFromMouse(mouseX, mouseY, screenWidth, screenHeight);
 
+    if (selectedMesh && selectedMesh->GetEditMode() == Mesh::EditMode::Face) {
+        selectedMesh->UpdateSelectionFromMouse(cameraPos, rayDir);
+    }
+
     auto findClosestMeshUnderCursor = [&]() -> Mesh* {
         Mesh* closestMesh = nullptr;
         float closestDistance = std::numeric_limits<float>::max();
@@ -321,6 +403,20 @@ void Application::HandleInput() {
             }
         }
         return closestMesh;
+    };
+
+    auto isLightClicked = [&]() -> bool {
+        if (!light.enabled) return false;
+        // Simple sphere intersection for light
+        const float lightRadius = 0.5f; // arbitrary radius for clicking
+        const glm::vec3 toLight = light.position - cameraPos;
+        const float distToLight = glm::length(toLight);
+        if (distToLight > 10.0f) return false; // too far
+        const float cosAngle = glm::dot(glm::normalize(toLight), rayDir);
+        if (cosAngle < 0.95f) return false; // not facing
+        const float sinAngle = std::sqrt(1.0f - cosAngle * cosAngle);
+        const float distToRay = distToLight * sinAngle;
+        return distToRay < lightRadius;
     };
 
     if (wantsMouse) {
@@ -348,29 +444,70 @@ void Application::HandleInput() {
                 hasObjectDragOffset = false;
                 hasLastDragIntersection = false;
                 hasDragPlane = false;
+                extrudeOperationActive = false;
+                extrudePerformed = false;
+                extrudeFaceIndex = -1;
 
                 Mesh* clickedMesh = findClosestMeshUnderCursor();
-                if (clickedMesh) {
+                bool clickedLight = isLightClicked();
+
+                if (clickedMesh && clickedMesh->GetEditMode() == Mesh::EditMode::Face) {
+                    clickedMesh->UpdateSelectionFromMouse(cameraPos, rayDir);
+                }
+
+                if (clickedLight) {
+                    selectedEntityType = SelectedEntityType::Light;
+                    selectedMesh = nullptr;
+                } else if (clickedMesh) {
                     selectedMesh = clickedMesh;
-                }
-
-                if (selectedMesh && selectedMesh->GetEditMode() == Mesh::EditMode::Face && selectedMesh == clickedMesh) {
-                    selectedMesh->UpdateSelectionFromMouse(cameraPos, rayDir);
-
-                    if (selectedMesh->GetSelectedFace() >= 0) {
-                        dragPlanePoint = selectedMesh->GetFaceCenter(selectedMesh->GetSelectedFace()) + selectedMesh->GetPosition();
-                        dragPlaneNormal = camera.GetForward();
-                        hasDragPlane = true;
+                    selectedEntityType = SelectedEntityType::Mesh;
+                    if (GetToolMode() == ToolMode::Extrude &&
+                        selectedMesh->GetEditMode() == Mesh::EditMode::Face &&
+                        selectedMesh->GetSelectedFace() >= 0) {
+                        extrudeOperationActive = true;
+                        extrudePerformed = false;
+                        extrudeFaceIndex = selectedMesh->GetSelectedFace();
                     }
+                } else {
+                    selectedEntityType = SelectedEntityType::None;
+                    selectedMesh = nullptr;
                 }
-                else if (selectedMesh) {
-                    dragPlanePoint = selectedMesh->GetPosition();
+
+                if (selectedEntityType == SelectedEntityType::Light) {
+                    dragPlanePoint = light.position;
                     dragPlaneNormal = camera.GetForward();
                     hasDragPlane = true;
 
                     const glm::vec3 intersection = GetPlaneIntersection(cameraPos, rayDir, dragPlanePoint, dragPlaneNormal);
-                    objectDragOffset = selectedMesh->GetPosition() - intersection;
+                    objectDragOffset = light.position - intersection;
                     hasObjectDragOffset = true;
+                }
+                else if (selectedMesh && selectedMesh == clickedMesh) {
+                    if (selectedMesh->GetEditMode() == Mesh::EditMode::Face || selectedMesh->GetEditMode() == Mesh::EditMode::Vertex) {
+                        selectedMesh->UpdateSelectionFromMouse(cameraPos, rayDir);
+                    }
+
+                    if (GetToolMode() == ToolMode::Split) {
+                        if (selectedMesh->GetEditMode() == Mesh::EditMode::Face && selectedMesh->GetSelectedFace() >= 0) {
+                            selectedMesh->SplitSelectedFace();
+                        } else if (selectedMesh->GetEditMode() == Mesh::EditMode::Vertex && selectedMesh->GetSelectedVertex() >= 0) {
+                            selectedMesh->SplitSelectedVertex();
+                        }
+                    }
+                    else if (selectedMesh->GetEditMode() == Mesh::EditMode::Face && selectedMesh->GetSelectedFace() >= 0) {
+                        dragPlanePoint = selectedMesh->GetFaceCenter(selectedMesh->GetSelectedFace()) + selectedMesh->GetPosition();
+                        dragPlaneNormal = camera.GetForward();
+                        hasDragPlane = true;
+                    }
+                    else {
+                        dragPlanePoint = selectedMesh->GetPosition();
+                        dragPlaneNormal = camera.GetForward();
+                        hasDragPlane = true;
+
+                        const glm::vec3 intersection = GetPlaneIntersection(cameraPos, rayDir, dragPlanePoint, dragPlaneNormal);
+                        objectDragOffset = selectedMesh->GetPosition() - intersection;
+                        hasObjectDragOffset = true;
+                    }
                 }
             }
             else {
@@ -381,8 +518,123 @@ void Application::HandleInput() {
                     isDraggingElement = true;
                 }
 
-                if (isDraggingElement && selectedMesh) {
-                    if (selectedMesh->GetEditMode() == Mesh::EditMode::Object) {
+                if (isDraggingElement && (selectedMesh || selectedEntityType == SelectedEntityType::Light)) {
+                    const ToolMode toolMode = GetToolMode();
+
+                    if (toolMode == ToolMode::Move && selectedEntityType == SelectedEntityType::Mesh && selectedMesh) {
+                        if (!hasDragPlane) {
+                            dragPlanePoint = selectedMesh->GetPosition();
+                            dragPlaneNormal = camera.GetForward();
+                            hasDragPlane = true;
+                        }
+
+                        const glm::vec3 intersection = GetPlaneIntersection(cameraPos, rayDir, dragPlanePoint, dragPlaneNormal);
+
+                        if (!hasLastDragIntersection) {
+                            lastDragIntersection = intersection;
+                            hasLastDragIntersection = true;
+                        } else {
+                            const glm::vec3 delta = intersection - lastDragIntersection;
+                            if (glm::length(delta) > 0.00001f) {
+                                selectedMesh->TranslateByVector(delta);
+                            }
+                            lastDragIntersection = intersection;
+                        }
+                    }
+                    else if (toolMode == ToolMode::Extrude && selectedEntityType == SelectedEntityType::Mesh && selectedMesh) {
+                        if (selectedMesh->GetEditMode() != Mesh::EditMode::Face || selectedMesh->GetSelectedFace() < 0) {
+                            // Экструзия доступна только в режиме редактирования граней и при наличии наведения.
+                        } else {
+                            if (!hasDragPlane) {
+                                dragPlanePoint = selectedMesh->GetFaceCenter(selectedMesh->GetSelectedFace()) + selectedMesh->GetPosition();
+                                dragPlaneNormal = camera.GetForward();
+                                hasDragPlane = true;
+                            }
+
+                            const glm::vec3 intersection = GetPlaneIntersection(cameraPos, rayDir, dragPlanePoint, dragPlaneNormal);
+
+                            if (!hasLastDragIntersection) {
+                                lastDragIntersection = intersection;
+                                hasLastDragIntersection = true;
+                            } else {
+                                const glm::vec3 delta = intersection - lastDragIntersection;
+                                if (glm::length(delta) > 0.00001f) {
+                                    const glm::vec3 faceNormal = selectedMesh->GetFaceNormal(selectedMesh->GetSelectedFace());
+                                    const float proj = glm::dot(delta, faceNormal);
+                                    if (proj > 0.0001f) {
+                                        if (!extrudePerformed && extrudeOperationActive && selectedMesh->GetSelectedFace() == extrudeFaceIndex) {
+                                            selectedMesh->ExtrudeSelectedAlongDirection(faceNormal * proj);
+                                            extrudePerformed = true;
+                                        } else if (extrudePerformed) {
+                                            selectedMesh->DragSelectedElement(faceNormal * proj);
+                                        }
+                                        dragPlanePoint += faceNormal * proj;
+                                    }
+                                }
+                                lastDragIntersection = intersection;
+                            }
+                        }
+                    }
+                    else if (toolMode == ToolMode::Rotate && selectedEntityType == SelectedEntityType::Mesh && selectedMesh) {
+                        glm::vec3 axis(0.0f);
+                        axis[rotationAxis] = 1.0f;
+
+                        if (!hasDragPlane) {
+                            if (selectedMesh->GetEditMode() == Mesh::EditMode::Face && selectedMesh->GetSelectedFace() >= 0) {
+                                dragPlanePoint = selectedMesh->GetFaceCenter(selectedMesh->GetSelectedFace()) + selectedMesh->GetPosition();
+                            } else if (selectedMesh->GetEditMode() == Mesh::EditMode::Vertex && selectedMesh->GetSelectedVertex() >= 0) {
+                                dragPlanePoint = selectedMesh->GetVertexPosition(selectedMesh->GetSelectedVertex()) + selectedMesh->GetPosition();
+                            } else {
+                                dragPlanePoint = selectedMesh->GetPosition();
+                            }
+                            dragPlaneNormal = axis;
+                            hasDragPlane = true;
+                        }
+
+                        const glm::vec3 intersection = GetPlaneIntersection(cameraPos, rayDir, dragPlanePoint, dragPlaneNormal);
+
+                        if (!hasLastDragIntersection) {
+                            lastDragIntersection = intersection;
+                            hasLastDragIntersection = true;
+                        } else {
+                            const glm::vec3 center = dragPlanePoint;
+                            const glm::vec3 v0 = lastDragIntersection - center;
+                            const glm::vec3 v1 = intersection - center;
+                            if (glm::length(v0) > 0.00001f && glm::length(v1) > 0.00001f) {
+                                float angle = atan2(glm::dot(axis, glm::cross(v0, v1)), glm::dot(v0, v1));
+                                if (std::fabs(angle) > 0.00001f) {
+                                    selectedMesh->RotateSelected(axis, angle);
+                                }
+                            }
+                            lastDragIntersection = intersection;
+                        }
+                    }
+                    else if (selectedEntityType == SelectedEntityType::Light) {
+                        if (!hasDragPlane) {
+                            dragPlanePoint = light.position;
+                            dragPlaneNormal = camera.GetForward();
+                            hasDragPlane = true;
+                        }
+
+                        glm::vec3 intersection = GetPlaneIntersection(cameraPos, rayDir, dragPlanePoint, dragPlaneNormal);
+
+                        if (!hasObjectDragOffset) {
+                            objectDragOffset = light.position - intersection;
+                            hasObjectDragOffset = true;
+                        }
+
+                        glm::vec3 newPosition = intersection + objectDragOffset;
+                        if (glfwGetKey(glfwWindow, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS ||
+                            glfwGetKey(glfwWindow, GLFW_KEY_RIGHT_CONTROL) == GLFW_PRESS) {
+                            newPosition.x = std::round(newPosition.x);
+                            newPosition.y = std::round(newPosition.y);
+                            newPosition.z = std::round(newPosition.z);
+                        }
+
+                        light.position = newPosition;
+                        dragPlanePoint = newPosition;
+                    }
+                    else if (selectedMesh->GetEditMode() == Mesh::EditMode::Object) {
                         if (!hasDragPlane) {
                             dragPlanePoint = selectedMesh->GetPosition();
                             dragPlaneNormal = camera.GetForward();
@@ -536,6 +788,9 @@ void Application::Run() {
         int displayWidth = 0;
         int displayHeight = 0;
         glfwGetFramebufferSize(window.GetNativeWindow(), &displayWidth, &displayHeight);
+        if (displayHeight <= 0) {
+            displayHeight = 1;
+        }
         glViewport(0, 0, displayWidth, displayHeight);
 
         glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
@@ -544,6 +799,42 @@ void Application::Run() {
         const float aspect = static_cast<float>(displayWidth) / static_cast<float>(displayHeight);
         const glm::mat4 view = camera.GetViewMatrix();
         const glm::mat4 projection = camera.GetProjectionMatrix(aspect);
+
+        // Shadow mapping
+float near_plane = 0.1f, far_plane = 30.0f;
+float orthoSize = 12.0f; // Увеличиваем размер
+glm::mat4 lightProjection = glm::ortho(-orthoSize, orthoSize, -orthoSize, orthoSize, near_plane, far_plane);
+glm::mat4 lightView = glm::lookAt(light.position, light.position + light.direction, glm::vec3(0.0, 1.0, 0.0));
+lightSpaceMatrix = lightProjection * lightView;
+
+        // 1. Render depth of scene to texture (from light's perspective)
+       if (shadowShaderProgram && shadowFBO && shadowMap) {
+    glViewport(0, 0, 2048, 2048);
+    glBindFramebuffer(GL_FRAMEBUFFER, shadowFBO);
+    glClear(GL_DEPTH_BUFFER_BIT);
+    
+    // Важно: отключаем запись в цветовой буфер
+    glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+    
+    glUseProgram(shadowShaderProgram);
+    for (auto& mesh : meshes) {
+        glm::mat4 model = glm::translate(glm::mat4(1.0f), mesh->GetPosition());
+        glUniformMatrix4fv(glGetUniformLocation(shadowShaderProgram, "lightSpaceMatrix"), 
+                          1, GL_FALSE, glm::value_ptr(lightSpaceMatrix));
+        glUniformMatrix4fv(glGetUniformLocation(shadowShaderProgram, "model"), 
+                          1, GL_FALSE, glm::value_ptr(model));
+        
+        glBindVertexArray(mesh->GetVAO());
+        glDrawElements(GL_TRIANGLES, mesh->GetVertexCount(), GL_UNSIGNED_INT, 0);
+    }
+    
+    // Включаем обратно запись цвета
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+        // Reset viewport
+        glViewport(0, 0, displayWidth, displayHeight);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         grid.Draw(view, projection);
 
@@ -558,12 +849,29 @@ void Application::Run() {
                 light.intensity,
                 light.ambientStrength,
                 light.innerCutoffDegrees,
-                light.outerCutoffDegrees);
+                light.outerCutoffDegrees,
+                lightSpaceMatrix,
+                shadowMap);
+        }
+
+        if (light.enabled) {
+            glDisable(GL_DEPTH_TEST);
+            grid.DrawAxes(view, projection, light.position, 0.25f);
+            glEnable(GL_DEPTH_TEST);
+        }
+
+        if (showLightRays && light.enabled) {
+            grid.DrawLightCone(view, projection, light.position, light.direction,
+                light.innerCutoffDegrees, light.outerCutoffDegrees);
         }
 
         if (selectedMesh) {
             glDisable(GL_DEPTH_TEST);
             grid.DrawAxes(view, projection, selectedMesh->GetPosition(), 0.75f);
+            selectedMesh->DrawSelectedFaceOutline(view, projection);
+            if (GetToolMode() == ToolMode::Rotate) {
+                grid.DrawRotationGizmo(view, projection, selectedMesh->GetPosition(), rotationAxis);
+            }
             glEnable(GL_DEPTH_TEST);
         }
 
@@ -752,7 +1060,7 @@ void Application::OpenFile() {
             std::cout << "Loaded scene: " << path << std::endl;
         }
     }
-    else {
+    else if (extension == ".obj") {
         auto mesh = std::make_shared<Mesh>();
         if (!mesh->LoadFromFile(path)) {
             return;
@@ -766,8 +1074,53 @@ void Application::OpenFile() {
         meshes.push_back(mesh);
         std::cout << "Imported mesh: " << path << std::endl;
     }
+    else if (extension == ".png" || extension == ".jpg" || extension == ".jpeg" || extension == ".bmp") {
+        auto mesh = std::make_shared<Mesh>();
+        if (!mesh->SetTexturedPlane(path)) {
+            return;
+        }
+
+        mesh->SetEditMode(Mesh::EditMode::Object);
+        ClearHistory();
+        selectedMesh = mesh.get();
+        meshes.push_back(mesh);
+        std::cout << "Imported image plane: " << path << std::endl;
+    }
+    else {
+        std::cerr << "Unsupported file type: " << extension << std::endl;
+    }
 #else
     std::cerr << "OpenFile is only implemented with native dialogs on Windows." << std::endl;
+#endif
+}
+
+void Application::ImportImage() {
+#ifdef _WIN32
+    static const char filter[] =
+        "Image Files (*.png;*.jpg;*.jpeg;*.bmp)\0*.png;*.jpg;*.jpeg;*.bmp\0"
+        "All Files (*.*)\0*.*\0\0";
+
+    const std::string path = ShowWindowsFileDialog(
+        filter,
+        OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST | OFN_EXPLORER,
+        nullptr);
+    if (path.empty()) {
+        return;
+    }
+
+    auto mesh = std::make_shared<Mesh>();
+    if (!mesh->SetTexturedPlane(path)) {
+        std::cerr << "Failed to import image: " << path << std::endl;
+        return;
+    }
+
+    mesh->SetEditMode(Mesh::EditMode::Object);
+    ClearHistory();
+    selectedMesh = mesh.get();
+    meshes.push_back(mesh);
+    std::cout << "Imported image plane: " << path << std::endl;
+#else
+    std::cerr << "ImportImage is only implemented on Windows." << std::endl;
 #endif
 }
 
@@ -849,3 +1202,26 @@ void Application::ExportSTL(const std::string& requestedPath) {
     out << "endsolid ExportedMesh\n";
     std::cout << "Exported " << meshes.size() << " mesh(es) to: " << path << std::endl;
 }
+
+void Application::SelectMesh(Mesh* mesh) {
+    selectedMesh = mesh;
+    selectedEntityType = SelectedEntityType::Mesh;
+}
+
+void Application::SelectLight() {
+    selectedMesh = nullptr;
+    selectedEntityType = SelectedEntityType::Light;
+}
+
+void Application::AddLightSource() {
+    glm::vec3 lightPos = glm::vec3(3.0f, 4.0f, 3.0f);
+    if (selectedMesh && selectedEntityType == SelectedEntityType::Mesh) {
+        lightPos = selectedMesh->GetPosition() + glm::vec3(3.0f, 4.0f, 3.0f);
+    }
+
+    light.position = lightPos;
+    light.enabled = true;
+    selectedMesh = nullptr;
+    selectedEntityType = SelectedEntityType::None;
+}
+
