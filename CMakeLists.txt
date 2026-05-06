@@ -40,6 +40,8 @@ add_executable(CatMesh_Dev
     src/main.cpp
     src/app/Application.cpp
     src/app/FileDialog.cpp
+    src/app/SceneDocument.cpp
+    src/app/SceneIO.cpp
     src/Platform/Window.cpp
     src/ui/UI.cpp
     src/ui/Themes.cpp

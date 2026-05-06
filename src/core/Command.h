@@ -1,9 +1,9 @@
 #pragma once
 #include <memory>
 #include <glm/glm.hpp>
+#include "core/Mesh.h"
 
 class Application;
-class Mesh;
 
 class Command {
 public:
@@ -42,4 +42,15 @@ private:
     std::weak_ptr<Mesh> mesh;
     glm::vec3 oldColor;
     glm::vec3 newColor;
+};
+
+class MeshStateCommand : public Command {
+public:
+    MeshStateCommand(const std::shared_ptr<Mesh>& mesh, Mesh::State beforeState, Mesh::State afterState);
+    void Execute() override;
+    void Undo() override;
+private:
+    std::weak_ptr<Mesh> mesh;
+    Mesh::State beforeState;
+    Mesh::State afterState;
 };

@@ -1,22 +1,12 @@
 #pragma once
 
 #include "Platform/Window.h"
+#include "app/SceneDocument.h"
 #include "ui/UI.h"
 #include "ui/Localization.h"
 #include "core/Camera.h"
-#include "core/Mesh.h"
-#include "core/Command.h"
 #include "core/Grid.h"
-#include <vector>
-#include <memory>
-#include <stack>
 #include <string>
-
-enum class SelectedEntityType {
-    None,
-    Mesh,
-    Light
-};
 
 enum class ToolMode {
     Select,
@@ -24,17 +14,6 @@ enum class ToolMode {
     Rotate,
     Extrude,
     Split
-};
-
-struct LightState {
-    bool enabled = true;
-    glm::vec3 position = glm::vec3(3.0f, 4.0f, 3.0f);
-    glm::vec3 direction = glm::normalize(glm::vec3(-3.0f, -4.0f, -3.0f));
-    glm::vec3 color = glm::vec3(1.0f, 0.96f, 0.9f);
-    float intensity = 6.0f;
-    float ambientStrength = 0.28f;
-    float innerCutoffDegrees = 18.0f;
-    float outerCutoffDegrees = 45.0f;
 };
 
 class Application {
@@ -45,14 +24,14 @@ public:
     void Run();
 
     // Геттеры
-    Mesh* GetSelectedMesh() const { return selectedMesh; }
-    const auto& GetMeshes() const { return meshes; }
+    Mesh* GetSelectedMesh() const { return scene.GetSelectedMesh(); }
+    const auto& GetMeshes() const { return scene.GetMeshes(); }
     Camera& GetCamera() { return camera; }
-    LightState& GetLight() { return light; }
-    const LightState& GetLight() const { return light; }
+    LightState& GetLight() { return scene.GetLight(); }
+    const LightState& GetLight() const { return scene.GetLight(); }
     Language GetLanguage() const { return language; }
-    SelectedEntityType GetSelectedEntityType() const { return selectedEntityType; }
-    bool IsLightSelected() const { return selectedEntityType == SelectedEntityType::Light && light.enabled; }
+    SelectedEntityType GetSelectedEntityType() const { return scene.GetSelectedEntityType(); }
+    bool IsLightSelected() const { return scene.IsLightSelected(); }
     std::shared_ptr<Mesh> GetSelectedMeshHandle() const;
 
     void SetLanguage(Language newLanguage) { language = newLanguage; }
@@ -87,12 +66,7 @@ private:
     Window window;
     UIManager ui;
     Camera camera;
-    std::vector<std::shared_ptr<Mesh>> meshes;
-    Mesh* selectedMesh = nullptr;
-    SelectedEntityType selectedEntityType = SelectedEntityType::None;
-    std::stack<std::unique_ptr<Command>> undoStack;
-    std::stack<std::unique_ptr<Command>> redoStack;
-    LightState light;
+    SceneDocument scene;
     Language language = Language::English;
     bool showLightRays = true;
     ToolMode toolMode = ToolMode::Select;
@@ -104,9 +78,9 @@ private:
     bool rightMousePressed;
 
     // Shadow mapping
-    unsigned int shadowFBO;
-    unsigned int shadowMap;
-    unsigned int shadowShaderProgram;
+    unsigned int shadowFBO = 0;
+    unsigned int shadowMap = 0;
+    unsigned int shadowShaderProgram = 0;
     glm::mat4 lightSpaceMatrix;
     double dragStartMouseX, dragStartMouseY;
     bool isDraggingElement;
@@ -121,10 +95,14 @@ private:
     // Состояние текущей операции Extrude
     bool extrudeOperationActive = false;
     bool extrudePerformed = false;
+    bool extrudeTranslateMode = false;
     int extrudeFaceIndex = -1;
-
+    float extrudeDistance = 0.0f;
     void HandleInput();
     void ClearHistory();
+    void BeginMeshEditTracking(const std::shared_ptr<Mesh>& mesh);
+    void CommitMeshEditTracking();
+    void ResetMeshEditTracking();
     bool LoadScene(const std::string& path);
     bool SaveSceneToPath(const std::string& path) const;
     glm::vec3 GetSceneCenter() const;

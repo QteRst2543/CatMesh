@@ -60,8 +60,7 @@ void main() {
     float distanceToLight = max(length(toLight), 0.001);
     vec3 lightVector = normalize(toLight);
     vec3 spotDirection = normalize(lightDir);
-
-    float theta = dot(lightVector, spotDirection);
+    float theta = dot(-lightVector, spotDirection);
     float epsilon = max(innerCutoff - outerCutoff, 0.0001);
     float spotFactor = clamp((theta - outerCutoff) / epsilon, 0.0, 1.0);
 

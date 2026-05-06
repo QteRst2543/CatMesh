@@ -1,6 +1,6 @@
 #include "app/Application.h"
 #include "app/FileDialog.h"
-#include "core/Mesh.h"
+#include "app/SceneIO.h"
 #include "core/Grid.h"
 #include "core/Shader.h"
 #include "imgui.h"
@@ -10,7 +10,6 @@
 #include <cctype>
 #include <cmath>
 #include <filesystem>
-#include <fstream>
 #include <iostream>
 #include <limits>
 #include <sstream>
@@ -51,6 +50,16 @@ bool IsKeyPressedOnce(GLFWwindow* window, int key) {
     return result;
 }
 
+bool IsCtrlDown(GLFWwindow* window) {
+    return glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS ||
+           glfwGetKey(window, GLFW_KEY_RIGHT_CONTROL) == GLFW_PRESS;
+}
+
+bool IsShiftDown(GLFWwindow* window) {
+    return glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS ||
+           glfwGetKey(window, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS;
+}
+
 #ifdef _WIN32
 // Функция открытия диалогового окна сохранена в src/app/FileDialog.cpp
 #endif
@@ -66,25 +75,15 @@ std::string ToLowerCopy(std::string value) {
 Application::~Application() = default;
 
 std::shared_ptr<Mesh> Application::GetSelectedMeshHandle() const {
-    auto it = std::find_if(meshes.begin(), meshes.end(),
-        [this](const auto& mesh) { return mesh.get() == selectedMesh; });
-    return it != meshes.end() ? *it : nullptr;
+    return scene.GetSelectedMeshHandle();
 }
 
 glm::vec3 Application::GetSceneCenter() const {
-    if (meshes.empty()) {
-        return glm::vec3(0.0f);
-    }
-
-    glm::vec3 center(0.0f);
-    for (const auto& mesh : meshes) {
-        center += mesh->GetPosition();
-    }
-    return center / static_cast<float>(meshes.size());
+    return scene.GetSceneCenter();
 }
 
 glm::vec3 Application::GetOrbitFocus() const {
-    return selectedMesh ? selectedMesh->GetPosition() : GetSceneCenter();
+    return GetSelectedMesh() ? GetSelectedMesh()->GetPosition() : GetSceneCenter();
 }
 
 Application::Application()
@@ -196,103 +195,51 @@ void Application::InitShadowMapping() {
 }
 
 void Application::ClearHistory() {
-    while (!undoStack.empty()) {
-        undoStack.pop();
-    }
-    while (!redoStack.empty()) {
-        redoStack.pop();
-    }
+    scene.ClearHistory();
+}
+
+void Application::BeginMeshEditTracking(const std::shared_ptr<Mesh>& mesh) {
+    scene.BeginMeshEditTracking(mesh);
+}
+
+void Application::CommitMeshEditTracking() {
+    scene.CommitMeshEditTracking();
+}
+
+void Application::ResetMeshEditTracking() {
+    scene.ResetMeshEditTracking();
 }
 
 void Application::AddDefaultCube() {
-    auto mesh = std::make_shared<Mesh>();
-    if (!mesh->LoadFromFile("")) {
-        std::cerr << "Failed to create default cube." << std::endl;
-        return;
-    }
-
-    mesh->SetPosition(glm::vec3(0.0f));
-    mesh->SetColor(glm::vec3(0.5f, 0.5f, 0.5f));
-    mesh->SetEditMode(Mesh::EditMode::Object);
-    meshes.push_back(mesh);
+    scene.AddDefaultCube();
 }
 
 void Application::DeleteSelectedMesh() {
-    if (!selectedMesh) {
-        return;
-    }
-
-    auto it = std::find_if(meshes.begin(), meshes.end(),
-        [this](const auto& ptr) { return ptr.get() == selectedMesh; });
-    if (it == meshes.end()) {
-        return;
-    }
-
-    ClearHistory();
-    meshes.erase(it);
-    selectedMesh = nullptr;
-    selectedEntityType = SelectedEntityType::None;
+    scene.DeleteSelectedMesh();
 }
 
 void Application::DeleteSelectedObject() {
-    if (selectedEntityType == SelectedEntityType::Mesh) {
-        DeleteSelectedMesh();
-    }
-    else if (selectedEntityType == SelectedEntityType::Light) {
-        light.enabled = false;
-        selectedEntityType = SelectedEntityType::None;
-        selectedMesh = nullptr;
-    }
+    scene.DeleteSelectedObject();
 }
 
 void Application::ExecuteCommand(std::unique_ptr<Command> cmd) {
-    cmd->Execute();
-    undoStack.push(std::move(cmd));
-    while (!redoStack.empty()) {
-        redoStack.pop();
-    }
+    scene.ExecuteCommand(std::move(cmd));
 }
 
 void Application::Undo() {
-    if (undoStack.empty()) {
-        return;
-    }
-
-    auto cmd = std::move(undoStack.top());
-    undoStack.pop();
-    cmd->Undo();
-    redoStack.push(std::move(cmd));
+    scene.Undo();
 }
 
 void Application::Redo() {
-    if (redoStack.empty()) {
-        return;
-    }
-
-    auto cmd = std::move(redoStack.top());
-    redoStack.pop();
-    cmd->Execute();
-    undoStack.push(std::move(cmd));
+    scene.Redo();
 }
 
 Mesh* Application::AddMesh(const std::shared_ptr<Mesh>& mesh) {
-    Mesh* raw = mesh.get();
-    meshes.push_back(mesh);
-    return raw;
+    return scene.AddMesh(mesh);
 }
 
 void Application::RemoveMesh(Mesh* mesh) {
-    auto it = std::find_if(meshes.begin(), meshes.end(),
-        [mesh](const auto& ptr) { return ptr.get() == mesh; });
-    if (it == meshes.end()) {
-        return;
-    }
-
-    meshes.erase(it);
-    if (selectedMesh == mesh) {
-        selectedMesh = nullptr;
-        selectedEntityType = SelectedEntityType::None;
-    }
+    scene.RemoveMesh(mesh);
 }
 
 glm::vec3 Application::GetRayFromMouse(double mouseX, double mouseY, int screenWidth, int screenHeight) {
@@ -387,8 +334,14 @@ void Application::HandleInput() {
 
     const glm::vec3 cameraPos = camera.GetPosition();
     const glm::vec3 rayDir = GetRayFromMouse(mouseX, mouseY, screenWidth, screenHeight);
+    auto& meshes = scene.AccessMeshes();
+    Mesh*& selectedMesh = scene.AccessSelectedMesh();
+    SelectedEntityType& selectedEntityType = scene.AccessSelectedEntityType();
+    LightState& light = scene.AccessLight();
 
-    if (selectedMesh && selectedMesh->GetEditMode() == Mesh::EditMode::Face) {
+    const bool allowHoverSelection = !leftDown && !leftMousePressed && !isDraggingElement;
+    if (selectedMesh && allowHoverSelection &&
+        (selectedMesh->GetEditMode() == Mesh::EditMode::Face || selectedMesh->GetEditMode() == Mesh::EditMode::Vertex)) {
         selectedMesh->UpdateSelectionFromMouse(cameraPos, rayDir);
     }
 
@@ -421,11 +374,19 @@ void Application::HandleInput() {
 
     if (wantsMouse) {
         if (!leftDown) {
+            if (leftMousePressed) {
+                CommitMeshEditTracking();
+            }
             leftMousePressed = false;
             isDraggingElement = false;
             hasObjectDragOffset = false;
             hasLastDragIntersection = false;
             hasDragPlane = false;
+            extrudeOperationActive = false;
+            extrudePerformed = false;
+            extrudeTranslateMode = false;
+            extrudeFaceIndex = -1;
+            extrudeDistance = 0.0f;
         }
 
         if (!rightDown) {
@@ -446,7 +407,9 @@ void Application::HandleInput() {
                 hasDragPlane = false;
                 extrudeOperationActive = false;
                 extrudePerformed = false;
+                extrudeTranslateMode = false;
                 extrudeFaceIndex = -1;
+                extrudeDistance = 0.0f;
 
                 Mesh* clickedMesh = findClosestMeshUnderCursor();
                 bool clickedLight = isLightClicked();
@@ -466,11 +429,19 @@ void Application::HandleInput() {
                         selectedMesh->GetSelectedFace() >= 0) {
                         extrudeOperationActive = true;
                         extrudePerformed = false;
+                        extrudeTranslateMode = false;
                         extrudeFaceIndex = selectedMesh->GetSelectedFace();
+                        extrudeDistance = 0.0f;
                     }
                 } else {
                     selectedEntityType = SelectedEntityType::None;
                     selectedMesh = nullptr;
+                }
+
+                if (selectedEntityType == SelectedEntityType::Mesh && selectedMesh == clickedMesh) {
+                    BeginMeshEditTracking(GetSelectedMeshHandle());
+                } else {
+                    ResetMeshEditTracking();
                 }
 
                 if (selectedEntityType == SelectedEntityType::Light) {
@@ -561,14 +532,39 @@ void Application::HandleInput() {
                                 if (glm::length(delta) > 0.00001f) {
                                     const glm::vec3 faceNormal = selectedMesh->GetFaceNormal(selectedMesh->GetSelectedFace());
                                     const float proj = glm::dot(delta, faceNormal);
-                                    if (proj > 0.0001f) {
-                                        if (!extrudePerformed && extrudeOperationActive && selectedMesh->GetSelectedFace() == extrudeFaceIndex) {
-                                            selectedMesh->ExtrudeSelectedAlongDirection(faceNormal * proj);
-                                            extrudePerformed = true;
+                                    if (std::fabs(proj) > 0.0001f) {
+                                        float appliedProj = 0.0f;
+
+                                        if (!extrudePerformed && !extrudeTranslateMode &&
+                                            extrudeOperationActive && selectedMesh->GetSelectedFace() == extrudeFaceIndex) {
+                                            if (proj > 0.0001f) {
+                                                selectedMesh->ExtrudeSelectedAlongDirection(faceNormal * proj);
+                                                extrudePerformed = true;
+                                                extrudeDistance = proj;
+                                                appliedProj = proj;
+                                            } else {
+                                                selectedMesh->DragSelectedElement(faceNormal * proj);
+                                                extrudeTranslateMode = true;
+                                                extrudeDistance = proj;
+                                                appliedProj = proj;
+                                            }
                                         } else if (extrudePerformed) {
+                                            appliedProj = std::max(-extrudeDistance, proj);
+                                            if (std::fabs(appliedProj) > 0.0001f) {
+                                                selectedMesh->DragSelectedElement(faceNormal * appliedProj);
+                                                extrudeDistance += appliedProj;
+                                            } else {
+                                                appliedProj = 0.0f;
+                                            }
+                                        } else if (extrudeTranslateMode) {
                                             selectedMesh->DragSelectedElement(faceNormal * proj);
+                                            extrudeDistance += proj;
+                                            appliedProj = proj;
                                         }
-                                        dragPlanePoint += faceNormal * proj;
+
+                                        if (std::fabs(appliedProj) > 0.0001f) {
+                                            dragPlanePoint += faceNormal * appliedProj;
+                                        }
                                     }
                                 }
                                 lastDragIntersection = intersection;
@@ -708,11 +704,19 @@ void Application::HandleInput() {
             }
         }
         else {
+            if (leftMousePressed) {
+                CommitMeshEditTracking();
+            }
             leftMousePressed = false;
             isDraggingElement = false;
             hasObjectDragOffset = false;
             hasLastDragIntersection = false;
             hasDragPlane = false;
+            extrudeOperationActive = false;
+            extrudePerformed = false;
+            extrudeTranslateMode = false;
+            extrudeFaceIndex = -1;
+            extrudeDistance = 0.0f;
         }
 
         if (rightDown) {
@@ -736,6 +740,30 @@ void Application::HandleInput() {
     }
 
     if (!wantsKeyboard) {
+        if (IsKeyPressedOnce(glfwWindow, GLFW_KEY_Q)) {
+            SetToolMode(ToolMode::Select);
+        }
+        if (IsKeyPressedOnce(glfwWindow, GLFW_KEY_G)) {
+            SetToolMode(ToolMode::Move);
+        }
+        if (IsKeyPressedOnce(glfwWindow, GLFW_KEY_R)) {
+            SetToolMode(ToolMode::Rotate);
+        }
+        if (IsKeyPressedOnce(glfwWindow, GLFW_KEY_E)) {
+            SetToolMode(ToolMode::Extrude);
+        }
+        if (IsKeyPressedOnce(glfwWindow, GLFW_KEY_K)) {
+            SetToolMode(ToolMode::Split);
+        }
+
+        if (selectedMesh && IsKeyPressedOnce(glfwWindow, GLFW_KEY_TAB)) {
+            const Mesh::EditMode currentMode = selectedMesh->GetEditMode();
+            selectedMesh->SetEditMode(
+                currentMode == Mesh::EditMode::Object
+                    ? Mesh::EditMode::Face
+                    : Mesh::EditMode::Object);
+        }
+
         if (selectedMesh && IsKeyPressedOnce(glfwWindow, GLFW_KEY_1)) {
             selectedMesh->SetEditMode(Mesh::EditMode::Object);
         }
@@ -743,19 +771,24 @@ void Application::HandleInput() {
             selectedMesh->SetEditMode(Mesh::EditMode::Face);
         }
 
-        if (IsKeyPressedOnce(glfwWindow, GLFW_KEY_DELETE)) {
-            DeleteSelectedMesh();
+        if (IsKeyPressedOnce(glfwWindow, GLFW_KEY_F)) {
+            camera.SetTarget(GetOrbitFocus());
         }
 
-        if (IsKeyPressedOnce(glfwWindow, GLFW_KEY_Y) &&
-            (glfwGetKey(glfwWindow, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS ||
-             glfwGetKey(glfwWindow, GLFW_KEY_RIGHT_CONTROL) == GLFW_PRESS)) {
+        if (IsKeyPressedOnce(glfwWindow, GLFW_KEY_DELETE) ||
+            IsKeyPressedOnce(glfwWindow, GLFW_KEY_X)) {
+            DeleteSelectedObject();
+        }
+
+        const bool ctrlDown = IsCtrlDown(glfwWindow);
+        const bool shiftDown = IsShiftDown(glfwWindow);
+
+        if ((IsKeyPressedOnce(glfwWindow, GLFW_KEY_Y) && ctrlDown) ||
+            (IsKeyPressedOnce(glfwWindow, GLFW_KEY_Z) && ctrlDown && shiftDown)) {
             Redo();
         }
 
-        if (IsKeyPressedOnce(glfwWindow, GLFW_KEY_Z) &&
-            (glfwGetKey(glfwWindow, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS ||
-             glfwGetKey(glfwWindow, GLFW_KEY_RIGHT_CONTROL) == GLFW_PRESS)) {
+        if (IsKeyPressedOnce(glfwWindow, GLFW_KEY_Z) && ctrlDown && !shiftDown) {
             Undo();
         }
     }
@@ -799,6 +832,9 @@ void Application::Run() {
         const float aspect = static_cast<float>(displayWidth) / static_cast<float>(displayHeight);
         const glm::mat4 view = camera.GetViewMatrix();
         const glm::mat4 projection = camera.GetProjectionMatrix(aspect);
+        const auto& meshes = scene.GetMeshes();
+        auto& light = scene.AccessLight();
+        Mesh* selectedMesh = GetSelectedMesh();
 
         // Shadow mapping
 float near_plane = 0.1f, far_plane = 30.0f;
@@ -881,162 +917,11 @@ lightSpaceMatrix = lightProjection * lightView;
 }
 
 bool Application::LoadScene(const std::string& path) {
-    std::ifstream in(path);
-    if (!in.is_open()) {
-        std::cerr << "Failed to open scene file: " << path << std::endl;
-        return false;
-    }
-
-    std::string token;
-    in >> token;
-    if (token != "CATMESH_SCENE_V1") {
-        std::cerr << "Unsupported scene format: " << path << std::endl;
-        return false;
-    }
-
-    std::size_t meshCount = 0;
-    in >> token >> meshCount;
-    if (!in || token != "mesh_count") {
-        std::cerr << "Scene header is malformed." << std::endl;
-        return false;
-    }
-
-    std::vector<std::shared_ptr<Mesh>> loadedMeshes;
-    loadedMeshes.reserve(meshCount);
-
-    for (std::size_t meshIndex = 0; meshIndex < meshCount; ++meshIndex) {
-        in >> token;
-        if (!in || token != "mesh") {
-            std::cerr << "Expected mesh block in scene file." << std::endl;
-            return false;
-        }
-
-        glm::vec3 position(0.0f);
-        glm::vec3 color(0.5f, 0.5f, 0.5f);
-        std::size_t vertexCount = 0;
-        std::size_t faceCount = 0;
-        std::vector<glm::vec3> editableVertices;
-        std::vector<std::vector<int>> faces;
-
-        in >> token >> position.x >> position.y >> position.z;
-        if (!in || token != "position") {
-            std::cerr << "Scene mesh position block is malformed." << std::endl;
-            return false;
-        }
-
-        in >> token >> color.x >> color.y >> color.z;
-        if (!in || token != "color") {
-            std::cerr << "Scene mesh color block is malformed." << std::endl;
-            return false;
-        }
-
-        in >> token >> vertexCount;
-        if (!in || token != "vertex_count") {
-            std::cerr << "Scene vertex block is malformed." << std::endl;
-            return false;
-        }
-
-        editableVertices.reserve(vertexCount);
-        for (std::size_t vertexIndex = 0; vertexIndex < vertexCount; ++vertexIndex) {
-            glm::vec3 vertex(0.0f);
-            in >> token >> vertex.x >> vertex.y >> vertex.z;
-            if (!in || token != "v") {
-                std::cerr << "Scene vertex entry is malformed." << std::endl;
-                return false;
-            }
-            editableVertices.push_back(vertex);
-        }
-
-        in >> token >> faceCount;
-        if (!in || token != "face_count") {
-            std::cerr << "Scene face block is malformed." << std::endl;
-            return false;
-        }
-
-        faces.reserve(faceCount);
-        for (std::size_t faceIndex = 0; faceIndex < faceCount; ++faceIndex) {
-            std::size_t indicesInFace = 0;
-            in >> token >> indicesInFace;
-            if (!in || token != "f" || indicesInFace < 3) {
-                std::cerr << "Scene face entry is malformed." << std::endl;
-                return false;
-            }
-
-            std::vector<int> face(indicesInFace, 0);
-            for (std::size_t i = 0; i < indicesInFace; ++i) {
-                in >> face[i];
-            }
-
-            if (!in) {
-                std::cerr << "Failed to read face indices." << std::endl;
-                return false;
-            }
-
-            faces.push_back(std::move(face));
-        }
-
-        in >> token;
-        if (!in || token != "end_mesh") {
-            std::cerr << "Scene mesh terminator is missing." << std::endl;
-            return false;
-        }
-
-        auto mesh = std::make_shared<Mesh>();
-        if (!mesh->SetGeometry(editableVertices, faces)) {
-            return false;
-        }
-
-        mesh->SetPosition(position);
-        mesh->SetColor(color);
-        mesh->SetEditMode(Mesh::EditMode::Object);
-        loadedMeshes.push_back(mesh);
-    }
-
-    meshes = std::move(loadedMeshes);
-    selectedMesh = meshes.empty() ? nullptr : meshes.front().get();
-    ClearHistory();
-    return true;
+    return SceneIO::LoadScene(path, scene);
 }
 
 bool Application::SaveSceneToPath(const std::string& path) const {
-    std::ofstream out(path);
-    if (!out.is_open()) {
-        std::cerr << "Failed to open scene file for writing: " << path << std::endl;
-        return false;
-    }
-
-    out << "CATMESH_SCENE_V1\n";
-    out << "mesh_count " << meshes.size() << "\n";
-
-    for (const auto& mesh : meshes) {
-        out << "mesh\n";
-
-        const glm::vec3 position = mesh->GetPosition();
-        out << "position " << position.x << " " << position.y << " " << position.z << "\n";
-
-        const glm::vec3 color = mesh->GetColor();
-        out << "color " << color.x << " " << color.y << " " << color.z << "\n";
-
-        const auto& editableVertices = mesh->GetEditableVertices();
-        out << "vertex_count " << editableVertices.size() << "\n";
-        for (const glm::vec3& vertex : editableVertices) {
-            out << "v " << vertex.x << " " << vertex.y << " " << vertex.z << "\n";
-        }
-
-        const auto& faces = mesh->GetFaces();
-        out << "face_count " << faces.size() << "\n";
-        for (const auto& face : faces) {
-            out << "f " << face.size();
-            for (int index : face) {
-                out << " " << index;
-            }
-            out << "\n";
-        }
-
-        out << "end_mesh\n";
-    }
-
-    return true;
+    return SceneIO::SaveScene(path, scene);
 }
 
 void Application::OpenFile() {
@@ -1070,8 +955,8 @@ void Application::OpenFile() {
         mesh->SetColor(glm::vec3(0.7f, 0.7f, 0.7f));
         mesh->SetEditMode(Mesh::EditMode::Object);
         ClearHistory();
-        selectedMesh = mesh.get();
-        meshes.push_back(mesh);
+        scene.AddMesh(mesh);
+        scene.SelectMesh(mesh.get());
         std::cout << "Imported mesh: " << path << std::endl;
     }
     else if (extension == ".png" || extension == ".jpg" || extension == ".jpeg" || extension == ".bmp") {
@@ -1082,8 +967,8 @@ void Application::OpenFile() {
 
         mesh->SetEditMode(Mesh::EditMode::Object);
         ClearHistory();
-        selectedMesh = mesh.get();
-        meshes.push_back(mesh);
+        scene.AddMesh(mesh);
+        scene.SelectMesh(mesh.get());
         std::cout << "Imported image plane: " << path << std::endl;
     }
     else {
@@ -1116,8 +1001,8 @@ void Application::ImportImage() {
 
     mesh->SetEditMode(Mesh::EditMode::Object);
     ClearHistory();
-    selectedMesh = mesh.get();
-    meshes.push_back(mesh);
+    scene.AddMesh(mesh);
+    scene.SelectMesh(mesh.get());
     std::cout << "Imported image plane: " << path << std::endl;
 #else
     std::cerr << "ImportImage is only implemented on Windows." << std::endl;
@@ -1147,11 +1032,6 @@ void Application::SaveFile() {
 }
 
 void Application::ExportSTL(const std::string& requestedPath) {
-    if (meshes.empty()) {
-        std::cout << "No meshes to export!" << std::endl;
-        return;
-    }
-
     std::string path = requestedPath;
 #ifdef _WIN32
     if (path.empty()) {
@@ -1167,61 +1047,19 @@ void Application::ExportSTL(const std::string& requestedPath) {
         }
     }
 #endif
-
-    std::ofstream out(path);
-    if (!out.is_open()) {
-        std::cout << "Failed to open file for writing: " << path << std::endl;
-        return;
+    if (!path.empty()) {
+        SceneIO::ExportSTL(path, scene);
     }
-
-    out << "solid ExportedMesh\n";
-
-    for (const auto& mesh : meshes) {
-        const glm::vec3 meshPosition = mesh->GetPosition();
-        const auto& editableVertices = mesh->GetEditableVertices();
-        const auto& logicalFaces = mesh->GetFaces();
-
-        for (const auto& face : logicalFaces) {
-            for (std::size_t i = 1; i + 1 < face.size(); ++i) {
-                const glm::vec3 v0 = editableVertices[face[0]] + meshPosition;
-                const glm::vec3 v1 = editableVertices[face[i]] + meshPosition;
-                const glm::vec3 v2 = editableVertices[face[i + 1]] + meshPosition;
-                const glm::vec3 normal = glm::normalize(glm::cross(v1 - v0, v2 - v0));
-
-                out << "facet normal " << normal.x << " " << normal.y << " " << normal.z << "\n";
-                out << "  outer loop\n";
-                out << "    vertex " << v0.x << " " << v0.y << " " << v0.z << "\n";
-                out << "    vertex " << v1.x << " " << v1.y << " " << v1.z << "\n";
-                out << "    vertex " << v2.x << " " << v2.y << " " << v2.z << "\n";
-                out << "  endloop\n";
-                out << "endfacet\n";
-            }
-        }
-    }
-
-    out << "endsolid ExportedMesh\n";
-    std::cout << "Exported " << meshes.size() << " mesh(es) to: " << path << std::endl;
 }
 
 void Application::SelectMesh(Mesh* mesh) {
-    selectedMesh = mesh;
-    selectedEntityType = SelectedEntityType::Mesh;
+    scene.SelectMesh(mesh);
 }
 
 void Application::SelectLight() {
-    selectedMesh = nullptr;
-    selectedEntityType = SelectedEntityType::Light;
+    scene.SelectLight();
 }
 
 void Application::AddLightSource() {
-    glm::vec3 lightPos = glm::vec3(3.0f, 4.0f, 3.0f);
-    if (selectedMesh && selectedEntityType == SelectedEntityType::Mesh) {
-        lightPos = selectedMesh->GetPosition() + glm::vec3(3.0f, 4.0f, 3.0f);
-    }
-
-    light.position = lightPos;
-    light.enabled = true;
-    selectedMesh = nullptr;
-    selectedEntityType = SelectedEntityType::None;
+    scene.AddLightSource();
 }
-

@@ -9,6 +9,17 @@
 class Mesh {
 public:
     enum class EditMode { Object, Vertex, Edge, Face };
+    struct State {
+        std::vector<glm::vec3> editableVertices;
+        std::vector<glm::vec2> texCoords;
+        std::vector<std::vector<int>> faces;
+        glm::vec3 position = glm::vec3(0.0f);
+        glm::vec3 color = glm::vec3(0.5f);
+        EditMode editMode = EditMode::Object;
+        int selectedFace = -1;
+        int selectedVertex = -1;
+        bool showWireframe = false;
+    };
 
     Mesh();
     ~Mesh();
@@ -42,6 +53,9 @@ public:
     glm::vec3 GetColor() const { return color; }
     unsigned int GetVAO() const { return VAO; }
     int GetVertexCount() const { return vertexCount; }
+    State CaptureState() const;
+    bool RestoreState(const State& state);
+    bool MatchesState(const State& state) const;
 
     // Новые методы для редактирования - ТОЛЬКО ОБЪЯВЛЕНИЯ, без реализации
     void SetEditMode(EditMode mode);
@@ -99,6 +113,7 @@ private:
     unsigned int wireframeShader = 0;
 
     void CreateShaderProgram();
+    void NormalizeFaceWinding();
     void RebuildFaceCenters();
     void RebuildRenderData();
     void UploadBuffers();

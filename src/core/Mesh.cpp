@@ -30,6 +30,20 @@ glm::vec3 SafeNormalize(const glm::vec3& value) {
     return value / len;
 }
 
+bool NearlyEqual(float a, float b, float epsilon = 0.0001f) {
+    return std::fabs(a - b) <= epsilon;
+}
+
+bool NearlyEqual(const glm::vec2& a, const glm::vec2& b, float epsilon = 0.0001f) {
+    return NearlyEqual(a.x, b.x, epsilon) && NearlyEqual(a.y, b.y, epsilon);
+}
+
+bool NearlyEqual(const glm::vec3& a, const glm::vec3& b, float epsilon = 0.0001f) {
+    return NearlyEqual(a.x, b.x, epsilon) &&
+           NearlyEqual(a.y, b.y, epsilon) &&
+           NearlyEqual(a.z, b.z, epsilon);
+}
+
 std::vector<glm::vec3> CreateDefaultCubeVertices() {
     return {
         {-0.5f, -0.5f, -0.5f},
@@ -250,6 +264,88 @@ Mesh::~Mesh() {
     DestroyWireframe();
 }
 
+Mesh::State Mesh::CaptureState() const {
+    State state;
+    state.editableVertices = editableVertices;
+    state.texCoords = texCoords;
+    state.faces = faces;
+    state.position = position;
+    state.color = color;
+    state.editMode = editMode;
+    state.selectedFace = selectedFace;
+    state.selectedVertex = selectedVertex;
+    state.showWireframe = showWireframe;
+    return state;
+}
+
+bool Mesh::RestoreState(const State& state) {
+    if (state.editableVertices.empty() || state.faces.empty()) {
+        return false;
+    }
+
+    editableVertices = state.editableVertices;
+    faces = state.faces;
+    texCoords = state.texCoords;
+    if (texCoords.size() < editableVertices.size()) {
+        texCoords.resize(editableVertices.size(), glm::vec2(0.0f));
+    } else if (texCoords.size() > editableVertices.size()) {
+        texCoords.resize(editableVertices.size());
+    }
+
+    position = state.position;
+    color = state.color;
+    editMode = state.editMode;
+    showWireframe = state.showWireframe;
+
+    NormalizeFaceWinding();
+    RebuildFaceCenters();
+    RebuildRenderData();
+    RebuildWireframe();
+    UploadBuffers();
+
+    selectedFace = (state.selectedFace >= 0 && state.selectedFace < static_cast<int>(faces.size()))
+        ? state.selectedFace
+        : -1;
+    selectedVertex = (state.selectedVertex >= 0 && state.selectedVertex < static_cast<int>(editableVertices.size()))
+        ? state.selectedVertex
+        : -1;
+    return true;
+}
+
+bool Mesh::MatchesState(const State& state) const {
+    if (!NearlyEqual(position, state.position) ||
+        !NearlyEqual(color, state.color) ||
+        editMode != state.editMode ||
+        selectedFace != state.selectedFace ||
+        selectedVertex != state.selectedVertex ||
+        showWireframe != state.showWireframe ||
+        editableVertices.size() != state.editableVertices.size() ||
+        texCoords.size() != state.texCoords.size() ||
+        faces.size() != state.faces.size()) {
+        return false;
+    }
+
+    for (std::size_t i = 0; i < editableVertices.size(); ++i) {
+        if (!NearlyEqual(editableVertices[i], state.editableVertices[i])) {
+            return false;
+        }
+    }
+
+    for (std::size_t i = 0; i < texCoords.size(); ++i) {
+        if (!NearlyEqual(texCoords[i], state.texCoords[i])) {
+            return false;
+        }
+    }
+
+    for (std::size_t i = 0; i < faces.size(); ++i) {
+        if (faces[i] != state.faces[i]) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 bool Mesh::LoadFromFile(const std::string& filename) {
     if (filename.empty()) {
         return SetGeometry(CreateDefaultCubeVertices(), CreateDefaultCubeFaces());
@@ -298,12 +394,45 @@ bool Mesh::SetGeometry(const std::vector<glm::vec3>& newVertices, const std::vec
     texCoords.assign(editableVertices.size(), glm::vec2(0.0f));
     selectedFace = -1;
     selectedVertex = -1;
-    RebuildWireframe();
-
+    NormalizeFaceWinding();
     RebuildFaceCenters();
     RebuildRenderData();
+    RebuildWireframe();
     UploadBuffers();
     return true;
+}
+
+void Mesh::NormalizeFaceWinding() {
+    if (editableVertices.empty() || faces.empty()) {
+        return;
+    }
+
+    glm::vec3 meshCenter(0.0f);
+    for (const glm::vec3& vertex : editableVertices) {
+        meshCenter += vertex;
+    }
+    meshCenter /= static_cast<float>(editableVertices.size());
+
+    for (auto& face : faces) {
+        if (face.size() < 3) {
+            continue;
+        }
+
+        const glm::vec3& p0 = editableVertices[face[0]];
+        const glm::vec3& p1 = editableVertices[face[1]];
+        const glm::vec3& p2 = editableVertices[face[2]];
+        const glm::vec3 normal = SafeNormalize(glm::cross(p1 - p0, p2 - p0));
+
+        glm::vec3 faceCenter(0.0f);
+        for (int vertexIndex : face) {
+            faceCenter += editableVertices[vertexIndex];
+        }
+        faceCenter /= static_cast<float>(face.size());
+
+        if (glm::dot(normal, faceCenter - meshCenter) < 0.0f) {
+            std::reverse(face.begin(), face.end());
+        }
+    }
 }
 
 void Mesh::RebuildFaceCenters() {
@@ -605,6 +734,7 @@ void Mesh::SplitSelectedFace() {
         }
     }
     faces.swap(newFaces);
+    NormalizeFaceWinding();
     RebuildFaceCenters();
     RebuildRenderData();
     RebuildWireframe();
@@ -641,6 +771,7 @@ void Mesh::SplitSelectedVertex() {
         }
     }
 
+    NormalizeFaceWinding();
     RebuildFaceCenters();
     RebuildRenderData();
     RebuildWireframe();
@@ -727,6 +858,7 @@ void Mesh::DragSelectedElement(const glm::vec3& delta) {
         return;
     }
 
+    NormalizeFaceWinding();
     RebuildFaceCenters();
     RebuildRenderData();
     RebuildWireframe();
@@ -889,20 +1021,16 @@ void Mesh::ExtrudeSelectedAlongDirection(const glm::vec3& direction) {
         }
 
         // Сохраняем нижнюю грань, добавляем верхнюю грань и боковые грани.
-        const int newTopFaceIndex = static_cast<int>(faces.size());
-        faces.push_back(extrudedFaceIndices);
+        faces[selectedFace] = extrudedFaceIndices;
         for (auto& sideFace : sideFaces) {
             faces.push_back(std::move(sideFace));
         }
-        selectedFace = newTopFaceIndex;
-    }
-    else if (editMode == EditMode::Vertex && selectedVertex >= 0 && selectedVertex < static_cast<int>(editableVertices.size())) {
-        editableVertices[selectedVertex] += direction;
     }
     else {
         return;
     }
 
+    NormalizeFaceWinding();
     RebuildFaceCenters();
     RebuildRenderData();
     RebuildWireframe();
@@ -936,6 +1064,7 @@ void Mesh::RotateSelected(const glm::vec3& axis, float angleRadians) {
         editableVertices[idx] = glm::vec3(rotation * v) + (center - position);
     }
 
+    NormalizeFaceWinding();
     RebuildFaceCenters();
     RebuildRenderData();
     RebuildWireframe();

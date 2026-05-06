@@ -1,5 +1,9 @@
 # build results
 /build/
+/build_fresh/
+
+# docks
+/docs/
 
 # Visual Studio
 /.vs/
